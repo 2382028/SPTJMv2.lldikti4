@@ -355,8 +355,8 @@
                                                 <td class="text-center align-middle">
                                                     @if($kesimpulan != 0)
                                                     <button type="button" class="btn btn-sm btn-primary btn-aksi-sp2d-individu py-0 px-2"
-                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="lebih" title="Input SP2D NIDN: {{ $row->NIDN }}" style="font-size:11px;">
-                                                        <i class="bx bx-edit-alt"></i> SP2D
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="lebih" title="Input NTPN NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit-alt"></i> NTPN
                                                     </button>
                                                     @else
                                                     -
@@ -448,15 +448,21 @@
                                                     @endif
 
                                                     @if($sudahSp2d)
-                                                        <span class="badge bg-label-info d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="SP2D: {{ $rekap->sp2d }}">
-                                                            <i class="bx bx-check-circle me-1"></i> SP2D
+                                                        @php
+                                                            $lbl = $isLebihRekap ? 'NTPN' : 'SP2D';
+                                                        @endphp
+                                                        <span class="badge bg-label-info d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="{{ $lbl }}: {{ $rekap->sp2d }}">
+                                                            <i class="bx bx-check-circle me-1"></i> {{ $lbl }}
                                                         </span>
                                                     @else
+                                                        @php
+                                                            $lbl = $isLebihRekap ? 'NTPN' : 'SP2D';
+                                                        @endphp
                                                         <button type="button"
                                                             class="btn btn-sm btn-primary btn-aksi-sp2d py-0 px-2"
                                                             data-rekap-id="{{ $rekap->id }}"
                                                             data-rekap-periode="{{ $rekap->periode }}"
-                                                            title="Input No SP2D"
+                                                            title="Input No {{ $lbl }}"
                                                             style="font-size:11px;">
                                                             <i class="bx bx-edit-alt"></i> Proses
                                                         </button>
@@ -491,7 +497,7 @@
                 </div>
                 <div class="alert alert-warning small py-2 mb-3">
                     <i class="bx bx-info-circle me-1"></i>
-                    Data SP2D hanya bisa diinput <b>satu kali</b>. Pastikan nomor dan tanggal sudah benar.
+                    <span id="sp2dWarningText">Data SP2D hanya bisa diinput <b>satu kali</b>. Pastikan nomor dan tanggal sudah benar.</span>
                 </div>
                 <input type="hidden" id="sp2dRekapId">
                 <div class="mb-3">
@@ -499,11 +505,11 @@
                     <input type="text" class="form-control" id="sp2dUraian" placeholder="Cth: Pembayaran kekurangan bayar">
                 </div>
                 <div class="mb-3">
-                    <label for="sp2dNomor" class="form-label">No SP2D <span class="text-danger">*</span></label>
+                    <label id="lblSp2dNomor" for="sp2dNomor" class="form-label">No SP2D <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="sp2dNomor" placeholder="Masukkan No SP2D" required>
                 </div>
                 <div class="mb-3">
-                    <label for="sp2dTanggal" class="form-label">Tanggal SP2D <span class="text-danger">*</span></label>
+                    <label id="lblSp2dTanggal" for="sp2dTanggal" class="form-label">Tanggal SP2D <span class="text-danger">*</span></label>
                     <input type="date" class="form-control" id="sp2dTanggal" required>
                 </div>
             </div>
@@ -532,7 +538,7 @@
                 </div>
                 <div class="alert alert-warning small py-2 mb-3">
                     <i class="bx bx-info-circle me-1"></i>
-                    Data SP2D ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.
+                    <span id="sp2dIndividuWarningText">Data SP2D ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.</span>
                 </div>
                 <input type="hidden" id="sp2dIndividuNidn">
                 <input type="hidden" id="sp2dIndividuJenis">
@@ -541,11 +547,11 @@
                     <input type="text" class="form-control" id="sp2dIndividuUraian" placeholder="Cth: Pembayaran kekurangan bayar tahun 2026">
                 </div>
                 <div class="mb-3">
-                    <label for="sp2dIndividuNomor" class="form-label">No SP2D <span class="text-danger">*</span></label>
+                    <label id="lblSp2dIndividuNomor" for="sp2dIndividuNomor" class="form-label">No SP2D <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="sp2dIndividuNomor" placeholder="Masukkan No SP2D" required>
                 </div>
                 <div class="mb-3">
-                    <label for="sp2dIndividuTanggal" class="form-label">Tanggal SP2D <span class="text-danger">*</span></label>
+                    <label id="lblSp2dIndividuTanggal" for="sp2dIndividuTanggal" class="form-label">Tanggal SP2D <span class="text-danger">*</span></label>
                     <input type="date" class="form-control" id="sp2dIndividuTanggal" required>
                 </div>
             </div>
@@ -768,11 +774,24 @@
             btn.addEventListener('click', function () {
                 const rekapId = this.dataset.rekapId;
                 const rekapPeriode = this.dataset.rekapPeriode;
+                const isLebih = (rekapPeriode || '').toLowerCase().includes('lebih');
+                const labelText = isLebih ? 'NTPN' : 'SP2D';
+
                 document.getElementById('sp2dRekapId').value = rekapId;
                 document.getElementById('sp2dRekapPeriode').textContent = rekapPeriode;
                 document.getElementById('sp2dUraian').value = '';
                 document.getElementById('sp2dNomor').value = '';
                 document.getElementById('sp2dTanggal').value = getTodayDate();
+                
+                // Set Labels dynamically
+                document.getElementById('modalSp2dLabel').textContent = `Input No ${labelText}`;
+                document.getElementById('lblSp2dNomor').innerHTML = `No ${labelText} <span class="text-danger">*</span>`;
+                document.getElementById('sp2dNomor').placeholder = `Masukkan No ${labelText}`;
+                document.getElementById('lblSp2dTanggal').innerHTML = `Tanggal ${labelText} <span class="text-danger">*</span>`;
+                document.getElementById('sp2dWarningText').innerHTML = `Data ${labelText} hanya bisa diinput <b>satu kali</b>. Pastikan nomor dan tanggal sudah benar.`;
+                document.getElementById('btnSubmitSp2d').innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses ${labelText}`;
+                document.getElementById('btnSubmitSp2d').dataset.labelText = labelText;
+
                 if (sp2dModal) sp2dModal.show();
             });
         });
@@ -786,13 +805,15 @@
                 const noSp2d = document.getElementById('sp2dNomor').value.trim();
                 const tglSp2d = document.getElementById('sp2dTanggal').value;
 
+                const labelText = btnSubmitSp2d.dataset.labelText || 'SP2D';
+
                 if (!noSp2d || !tglSp2d) {
                     // Sembunyikan modal dulu agar peringatan tampil di depan
                     if (sp2dModal) sp2dModal.hide();
                     if (alertApi) {
-                        await alertApi.warning('Peringatan', 'No SP2D dan Tanggal wajib diisi.');
+                        await alertApi.warning('Peringatan', `No ${labelText} dan Tanggal wajib diisi.`);
                     } else {
-                        alert('No SP2D dan Tanggal wajib diisi.');
+                        alert(`No ${labelText} dan Tanggal wajib diisi.`);
                     }
                     // Tampilkan kembali modal
                     if (sp2dModal) sp2dModal.show();
@@ -805,18 +826,18 @@
                 // Konfirmasi sebelum submit
                 const konfHtml = `
                     <div class="text-start">
-                        <div>No SP2D: <b>${noSp2d}</b></div>
+                        <div>No ${labelText}: <b>${noSp2d}</b></div>
                         <div>Tanggal: <b>${tglSp2d}</b></div>
-                        <div class="mt-2 alert alert-warning mb-0 small">Data SP2D tidak bisa diubah setelah diproses.</div>
+                        <div class="mt-2 alert alert-warning mb-0 small">Data ${labelText} tidak bisa diubah setelah diproses.</div>
                     </div>
                 `;
 
                 let confirmed = false;
                 if (alertApi) {
-                    const r = await alertApi.question('Konfirmasi Proses SP2D', konfHtml, { confirmButtonText: 'Ya, Proses' });
+                    const r = await alertApi.question(`Konfirmasi Proses ${labelText}`, konfHtml, { confirmButtonText: 'Ya, Proses' });
                     confirmed = r && r.isConfirmed;
                 } else {
-                    confirmed = confirm('Yakin ingin memproses SP2D ini? Data tidak bisa diubah setelahnya.');
+                    confirmed = confirm(`Yakin ingin memproses ${labelText} ini? Data tidak bisa diubah setelahnya.`);
                 }
 
                 if (!confirmed) {
@@ -853,9 +874,9 @@
                     if (data.success) {
                         if (sp2dModal) sp2dModal.hide();
                         if (alertApi) {
-                            await alertApi.success('Berhasil', data.message || 'SP2D berhasil diproses.');
+                            await alertApi.success('Berhasil', data.message || `${labelText} berhasil diproses.`);
                         } else {
-                            alert(data.message || 'SP2D berhasil diproses.');
+                            alert(data.message || `${labelText} berhasil diproses.`);
                         }
                         // Reload halaman untuk refresh data
                         window.location.reload();
@@ -875,7 +896,7 @@
                     }
                 } finally {
                     btnSubmitSp2d.disabled = false;
-                    btnSubmitSp2d.innerHTML = '<span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D';
+                    btnSubmitSp2d.innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses ${labelText}`;
                 }
             });
         }
@@ -888,12 +909,24 @@
                 const nidn = this.dataset.nidn;
                 const nama = this.dataset.nama;
                 const jenis = this.dataset.jenis;
+                const isLebih = (jenis === 'lebih');
+                const labelText = isLebih ? 'NTPN' : 'SP2D';
+
                 document.getElementById('sp2dIndividuNidn').value = nidn;
                 document.getElementById('sp2dIndividuJenis').value = jenis;
                 document.getElementById('sp2dIndividuNidnLabel').textContent = nidn + ' - ' + nama + ' (' + jenis.toUpperCase() + ')';
                 document.getElementById('sp2dIndividuUraian').value = '';
                 document.getElementById('sp2dIndividuNomor').value = '';
                 document.getElementById('sp2dIndividuTanggal').value = getTodayDate();
+
+                document.getElementById('modalSp2dIndividuLabel').textContent = `Input No ${labelText} Individu`;
+                document.getElementById('lblSp2dIndividuNomor').innerHTML = `No ${labelText} <span class="text-danger">*</span>`;
+                document.getElementById('sp2dIndividuNomor').placeholder = `Masukkan No ${labelText}`;
+                document.getElementById('lblSp2dIndividuTanggal').innerHTML = `Tanggal ${labelText} <span class="text-danger">*</span>`;
+                document.getElementById('sp2dIndividuWarningText').innerHTML = `Data ${labelText} ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.`;
+                document.getElementById('btnSubmitSp2dIndividu').innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses ${labelText}`;
+                document.getElementById('btnSubmitSp2dIndividu').dataset.labelText = labelText;
+
                 if (sp2dIndividuModal) sp2dIndividuModal.show();
             });
         });
@@ -907,12 +940,14 @@
                 const noSp2d = document.getElementById('sp2dIndividuNomor').value.trim();
                 const tglSp2d = document.getElementById('sp2dIndividuTanggal').value;
 
+                const labelText = btnSubmitSp2dIndividu.dataset.labelText || 'SP2D';
+
                 if (!noSp2d || !tglSp2d) {
                     if (sp2dIndividuModal) sp2dIndividuModal.hide();
                     if (alertApi) {
-                        await alertApi.warning('Peringatan', 'No SP2D dan Tanggal wajib diisi.');
+                        await alertApi.warning('Peringatan', `No ${labelText} dan Tanggal wajib diisi.`);
                     } else {
-                        alert('No SP2D dan Tanggal wajib diisi.');
+                        alert(`No ${labelText} dan Tanggal wajib diisi.`);
                     }
                     if (sp2dIndividuModal) sp2dIndividuModal.show();
                     return;
@@ -923,18 +958,18 @@
                 const konfHtml = `
                     <div class="text-start">
                         <div>NIDN: <b>${nidn}</b></div>
-                        <div>No SP2D: <b>${noSp2d}</b></div>
+                        <div>No ${labelText}: <b>${noSp2d}</b></div>
                         <div>Tanggal: <b>${tglSp2d}</b></div>
-                        <div class="mt-2 alert alert-warning mb-0 small">Data SP2D tidak bisa diubah setelah diproses.</div>
+                        <div class="mt-2 alert alert-warning mb-0 small">Data ${labelText} tidak bisa diubah setelah diproses.</div>
                     </div>
                 `;
 
                 let confirmed = false;
                 if (alertApi) {
-                    const r = await alertApi.question('Konfirmasi Proses SP2D Individu', konfHtml, { confirmButtonText: 'Ya, Proses' });
+                    const r = await alertApi.question(`Konfirmasi Proses ${labelText} Individu`, konfHtml, { confirmButtonText: 'Ya, Proses' });
                     confirmed = r && r.isConfirmed;
                 } else {
-                    confirmed = confirm('Yakin ingin memproses SP2D ini? Data tidak bisa diubah setelahnya.');
+                    confirmed = confirm(`Yakin ingin memproses ${labelText} ini? Data tidak bisa diubah setelahnya.`);
                 }
 
                 if (!confirmed) {
@@ -970,9 +1005,9 @@
                     if (data.success) {
                         if (sp2dIndividuModal) sp2dIndividuModal.hide();
                         if (alertApi) {
-                            await alertApi.success('Berhasil', data.message || 'SP2D berhasil diproses.');
+                            await alertApi.success('Berhasil', data.message || `${labelText} berhasil diproses.`);
                         } else {
-                            alert(data.message || 'SP2D berhasil diproses.');
+                            alert(data.message || `${labelText} berhasil diproses.`);
                         }
                         window.location.reload();
                     } else {
@@ -991,7 +1026,7 @@
                     }
                 } finally {
                     btnSubmitSp2dIndividu.disabled = false;
-                    btnSubmitSp2dIndividu.innerHTML = '<span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D';
+                    btnSubmitSp2dIndividu.innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses ${labelText}`;
                 }
             });
         }

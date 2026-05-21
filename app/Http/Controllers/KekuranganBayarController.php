@@ -1023,36 +1023,54 @@ class KekuranganBayarController extends Controller
   public function prosesAksiSp2d(Request $request)
   {
     $request->validate([
-      'rekap_id' => 'required|integer',
+      'rekap_id' => 'nullable|integer',
+      'nidn' => 'nullable|string',
+      'jenis_sp2d' => 'nullable|string|in:kurang,lebih',
       'no_sp2d' => 'required|string|max:100',
       'tanggal_sp2d' => 'required|date',
+      'uraian_pembayaran' => 'nullable|string|max:255',
     ]);
 
-    $rekapId = (int) $request->input('rekap_id');
+    $rekapId = $request->input('rekap_id') ? (int) $request->input('rekap_id') : null;
+    $nidnInput = trim((string) $request->input('nidn'));
+    $jenisSp2d = $request->input('jenis_sp2d');
     $noSp2d = trim($request->input('no_sp2d'));
     $tanggalSp2d = $request->input('tanggal_sp2d');
+    $inputUraian = trim((string) $request->input('uraian_pembayaran'));
     $versi = session('tahun');
 
     if (!$versi) {
       return response()->json(['success' => false, 'message' => 'Tahun versi belum dipilih pada sesi.'], 422);
     }
 
-    // Cek rekap exists & belum pernah diproses
-    $rekap = DB::table('u_rekap_kekurangan')->where('id', $rekapId)->first();
-    if (!$rekap) {
-      return response()->json(['success' => false, 'message' => 'Data rekap tidak ditemukan.'], 404);
-    }
-    if (!empty($rekap->sp2d)) {
-      return response()->json(['success' => false, 'message' => 'Rekap ini sudah pernah diproses SP2D.'], 422);
-    }
+    $isKurang = false;
+    $isLebih = false;
+    $rekap = null;
 
-    // Deteksi jenis rekap (kurang/lebih) dari periode
-    $periode = strtolower(trim($rekap->periode ?? ''));
-    $isKurang = (strpos($periode, 'kurang') !== false);
-    $isLebih  = (strpos($periode, 'lebih') !== false);
+    if ($rekapId) {
+        // Cek rekap exists & belum pernah diproses
+        $rekap = DB::table('u_rekap_kekurangan')->where('id', $rekapId)->first();
+        if (!$rekap) {
+          return response()->json(['success' => false, 'message' => 'Data rekap tidak ditemukan.'], 404);
+        }
+        if (!empty($rekap->sp2d)) {
+          return response()->json(['success' => false, 'message' => 'Rekap ini sudah pernah diproses SP2D.'], 422);
+        }
 
-    if (!$isKurang && !$isLebih) {
-      return response()->json(['success' => false, 'message' => 'Tidak dapat menentukan jenis rekap (kurang/lebih).'], 422);
+        // Deteksi jenis rekap (kurang/lebih) dari periode
+        $periode = strtolower(trim($rekap->periode ?? ''));
+        $isKurang = (strpos($periode, 'kurang') !== false);
+        $isLebih  = (strpos($periode, 'lebih') !== false);
+
+        if (!$isKurang && !$isLebih) {
+          return response()->json(['success' => false, 'message' => 'Tidak dapat menentukan jenis rekap (kurang/lebih).'], 422);
+        }
+    } else {
+        if (!$nidnInput || !$jenisSp2d) {
+            return response()->json(['success' => false, 'message' => 'NIDN dan jenis harus diisi jika bukan dari rekap.'], 422);
+        }
+        if ($jenisSp2d === 'kurang') $isKurang = true;
+        if ($jenisSp2d === 'lebih') $isLebih = true;
     }
 
     $monthNames = [
@@ -1073,23 +1091,30 @@ class KekuranganBayarController extends Controller
 
     DB::beginTransaction();
     try {
-      // Update SP2D di rekap
-      DB::table('u_rekap_kekurangan')->where('id', $rekapId)->update([
-        'sp2d' => $noSp2d,
-        'tgl_sp2d' => $tanggalSp2d,
-        'updated_at' => now(),
-      ]);
+      // Update SP2D di rekap jika bulk
+      if ($rekapId) {
+          DB::table('u_rekap_kekurangan')->where('id', $rekapId)->update([
+            'sp2d' => $noSp2d,
+            'tgl_sp2d' => $tanggalSp2d,
+            'updated_at' => now(),
+          ]);
+      }
 
       // Query semua dosen dari t_kekurangan yang sesuai
       $bersihCondition = $isKurang ? '(ku.bersih + 0) < 0' : '(ku.bersih + 0) > 0';
-      $dosenRows = DB::table('t_kekurangan as ku')
+      $dosenQuery = DB::table('t_kekurangan as ku')
         ->join('s_transaksi_2 as k', function ($join) {
           $join->on('ku.nidn', '=', 'k.NIDN');
         })
         ->where('ku.tahun', $versi)
         ->where('k.Tahun_Versi', $versi)
-        ->whereRaw($bersihCondition)
-        ->select(
+        ->whereRaw($bersihCondition);
+
+      if (!$rekapId && $nidnInput) {
+          $dosenQuery->where('ku.nidn', $nidnInput);
+      }
+
+      $dosenRows = $dosenQuery->select(
           'ku.nidn', 'k.Jenis as Jenis', 'k.Jabatan12 as Jabatan12',
           'ku.k_tpd1', 'ku.k_tpd2', 'ku.k_tpd3', 'ku.k_tpd4', 'ku.k_tpd5', 'ku.k_tpd6',
           'ku.k_tpd7', 'ku.k_tpd8', 'ku.k_tpd9', 'ku.k_tpd10', 'ku.k_tpd11', 'ku.k_tpd12',
@@ -1167,9 +1192,13 @@ class KekuranganBayarController extends Controller
           $totalBersih = $nominalKotor - $totalPajak;
 
           // Generate uraian (tanpa nama bulan karena sudah ada di kolom bulan)
-          $uraian = $isKurang
-            ? 'Pembayaran kekurangan'
-            : 'Potongan kelebihan bayar';
+          if ($inputUraian !== '') {
+              $uraian = $inputUraian;
+          } else {
+              $uraian = $isKurang
+                ? 'Pembayaran kekurangan'
+                : 'Potongan kelebihan bayar';
+          }
 
           $insertBatch[] = [
             'rekap_id' => $rekapId,

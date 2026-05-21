@@ -37,17 +37,15 @@ class AuthController extends Controller
       }
     }
 
+    $currentYear = (int) date('Y');
     $activeYears = ActiveYears::load();
-    if (!empty($activeYears)) {
-      $tahun_versi = DB::table('s_transaksi_2')
-        ->whereIn('Tahun_Versi', $activeYears)
-        ->groupBy('Tahun_Versi')
-        ->orderBy('Tahun_Versi', 'desc')
-        ->pluck('Tahun_Versi');
-    } else {
-      // Jika semua non-aktif, tampilkan tahun saat ini
-      $tahun_versi = collect([date('Y')]);
+    
+    if (!in_array($currentYear, $activeYears)) {
+        $activeYears[] = $currentYear;
     }
+    
+    sort($activeYears);
+    $tahun_versi = collect($activeYears);
 
     $loginBackgroundUrl = LoginBackgroundService::getAssetUrl();
     $loginHeaderMode = LoginBackgroundService::getHeaderMode();

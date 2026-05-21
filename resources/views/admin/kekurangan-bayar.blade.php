@@ -137,6 +137,7 @@
                                             <th rowspan="3" class="text-center align-middle">Status</th>
                                             <th colspan="48" class="text-center">Januari - Desember</th>
                                             <th colspan="11" class="text-center">Jumlah Kotor, Nilai Pajak, dan Bersih</th>
+                                            <th rowspan="3" class="text-center align-middle">Aksi</th>
                                         </tr>
                                         <tr>
                                             <th colspan="2" class="text-center">Jan</th><th colspan="2" class="text-center">Jan (Aktual)</th>
@@ -216,6 +217,16 @@
                                                 <td>{{ $formatInt($row->nilai_pjk_tkgb_akt ?? 0) }}</td>
                                                 <td>{{ $formatInt($row->bersih_akt ?? 0) }}</td>
                                                 <td class="{{ $clsKesimpulan }}">{{ $formatInt($kesimpulan) }}</td>
+                                                <td class="text-center align-middle">
+                                                    @if($kesimpulan != 0)
+                                                    <button type="button" class="btn btn-sm btn-primary btn-aksi-sp2d-individu py-0 px-2"
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="kurang" title="Input SP2D NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit-alt"></i> SP2D
+                                                    </button>
+                                                    @else
+                                                    -
+                                                    @endif
+                                                </td>
                                         </tr>
                                         @empty
                                         <tr>
@@ -261,6 +272,7 @@
                                             <th rowspan="3" class="text-center align-middle">Status</th>
                                             <th colspan="48" class="text-center">Januari - Desember</th>
                                             <th colspan="11" class="text-center">Jumlah Kotor, Nilai Pajak, dan Bersih</th>
+                                            <th rowspan="3" class="text-center align-middle">Aksi</th>
                                         </tr>
                                         <tr>
                                             <th colspan="2" class="text-center">Jan</th><th colspan="2" class="text-center">Jan (Aktual)</th>
@@ -340,6 +352,16 @@
                                                 <td>{{ $formatInt($row->nilai_pjk_tkgb_akt ?? 0) }}</td>
                                                 <td>{{ $formatInt($row->bersih_akt ?? 0) }}</td>
                                                 <td class="{{ $clsKesimpulan }}">{{ $formatInt($kesimpulan) }}</td>
+                                                <td class="text-center align-middle">
+                                                    @if($kesimpulan != 0)
+                                                    <button type="button" class="btn btn-sm btn-primary btn-aksi-sp2d-individu py-0 px-2"
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="lebih" title="Input SP2D NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit-alt"></i> SP2D
+                                                    </button>
+                                                    @else
+                                                    -
+                                                    @endif
+                                                </td>
                                         </tr>
                                         @empty
                                         <tr>
@@ -473,6 +495,10 @@
                 </div>
                 <input type="hidden" id="sp2dRekapId">
                 <div class="mb-3">
+                    <label for="sp2dUraian" class="form-label">Uraian Pembayaran <span class="text-muted">(Opsional)</span></label>
+                    <input type="text" class="form-control" id="sp2dUraian" placeholder="Cth: Pembayaran kekurangan bayar">
+                </div>
+                <div class="mb-3">
                     <label for="sp2dNomor" class="form-label">No SP2D <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="sp2dNomor" placeholder="Masukkan No SP2D" required>
                 </div>
@@ -484,6 +510,48 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
                 <button type="button" class="btn btn-primary" id="btnSubmitSp2d">
+                    <span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Modal Input SP2D Individu --}}
+<div class="modal fade" id="modalSp2dIndividu" tabindex="-1" aria-labelledby="modalSp2dIndividuLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalSp2dIndividuLabel">Input No SP2D Individu</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <span class="text-muted small">NIDN - Nama:</span>
+                    <strong id="sp2dIndividuNidnLabel" class="d-block"></strong>
+                </div>
+                <div class="alert alert-warning small py-2 mb-3">
+                    <i class="bx bx-info-circle me-1"></i>
+                    Data SP2D ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.
+                </div>
+                <input type="hidden" id="sp2dIndividuNidn">
+                <input type="hidden" id="sp2dIndividuJenis">
+                <div class="mb-3">
+                    <label for="sp2dIndividuUraian" class="form-label">Uraian Pembayaran <span class="text-muted">(Opsional)</span></label>
+                    <input type="text" class="form-control" id="sp2dIndividuUraian" placeholder="Cth: Pembayaran kekurangan bayar tahun 2026">
+                </div>
+                <div class="mb-3">
+                    <label for="sp2dIndividuNomor" class="form-label">No SP2D <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="sp2dIndividuNomor" placeholder="Masukkan No SP2D" required>
+                </div>
+                <div class="mb-3">
+                    <label for="sp2dIndividuTanggal" class="form-label">Tanggal SP2D <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control" id="sp2dIndividuTanggal" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" id="btnSubmitSp2dIndividu">
                     <span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D
                 </button>
             </div>
@@ -682,6 +750,15 @@
         wireDeleteConfirm(formDestroyKurang, 'Konfirmasi', 'Yakin ingin menghapus data Kurang Bayar pada tahun ini?');
         wireDeleteConfirm(formDestroyLebih, 'Konfirmasi', 'Yakin ingin menghapus data Lebih Bayar pada tahun ini?');
 
+        // Helper date
+        const getTodayDate = () => {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        };
+
         // SP2D MODAL HANDLERS
         const modalSp2dEl = document.getElementById('modalSp2d');
         const sp2dModal = modalSp2dEl ? new bootstrap.Modal(modalSp2dEl) : null;
@@ -693,8 +770,9 @@
                 const rekapPeriode = this.dataset.rekapPeriode;
                 document.getElementById('sp2dRekapId').value = rekapId;
                 document.getElementById('sp2dRekapPeriode').textContent = rekapPeriode;
+                document.getElementById('sp2dUraian').value = '';
                 document.getElementById('sp2dNomor').value = '';
-                document.getElementById('sp2dTanggal').value = '';
+                document.getElementById('sp2dTanggal').value = getTodayDate();
                 if (sp2dModal) sp2dModal.show();
             });
         });
@@ -704,6 +782,7 @@
         if (btnSubmitSp2d) {
             btnSubmitSp2d.addEventListener('click', async function () {
                 const rekapId = document.getElementById('sp2dRekapId').value;
+                const uraianPembayaran = document.getElementById('sp2dUraian').value.trim();
                 const noSp2d = document.getElementById('sp2dNomor').value.trim();
                 const tglSp2d = document.getElementById('sp2dTanggal').value;
 
@@ -765,6 +844,7 @@
                             rekap_id: rekapId,
                             no_sp2d: noSp2d,
                             tanggal_sp2d: tglSp2d,
+                            uraian_pembayaran: uraianPembayaran,
                         }),
                     });
 
@@ -796,6 +876,122 @@
                 } finally {
                     btnSubmitSp2d.disabled = false;
                     btnSubmitSp2d.innerHTML = '<span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D';
+                }
+            });
+        }
+        // SP2D INDIVIDU MODAL HANDLERS
+        const modalSp2dIndividuEl = document.getElementById('modalSp2dIndividu');
+        const sp2dIndividuModal = modalSp2dIndividuEl ? new bootstrap.Modal(modalSp2dIndividuEl) : null;
+
+        document.querySelectorAll('.btn-aksi-sp2d-individu').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const nidn = this.dataset.nidn;
+                const nama = this.dataset.nama;
+                const jenis = this.dataset.jenis;
+                document.getElementById('sp2dIndividuNidn').value = nidn;
+                document.getElementById('sp2dIndividuJenis').value = jenis;
+                document.getElementById('sp2dIndividuNidnLabel').textContent = nidn + ' - ' + nama + ' (' + jenis.toUpperCase() + ')';
+                document.getElementById('sp2dIndividuUraian').value = '';
+                document.getElementById('sp2dIndividuNomor').value = '';
+                document.getElementById('sp2dIndividuTanggal').value = getTodayDate();
+                if (sp2dIndividuModal) sp2dIndividuModal.show();
+            });
+        });
+
+        const btnSubmitSp2dIndividu = document.getElementById('btnSubmitSp2dIndividu');
+        if (btnSubmitSp2dIndividu) {
+            btnSubmitSp2dIndividu.addEventListener('click', async function () {
+                const nidn = document.getElementById('sp2dIndividuNidn').value;
+                const jenis = document.getElementById('sp2dIndividuJenis').value;
+                const uraianPembayaran = document.getElementById('sp2dIndividuUraian').value.trim();
+                const noSp2d = document.getElementById('sp2dIndividuNomor').value.trim();
+                const tglSp2d = document.getElementById('sp2dIndividuTanggal').value;
+
+                if (!noSp2d || !tglSp2d) {
+                    if (sp2dIndividuModal) sp2dIndividuModal.hide();
+                    if (alertApi) {
+                        await alertApi.warning('Peringatan', 'No SP2D dan Tanggal wajib diisi.');
+                    } else {
+                        alert('No SP2D dan Tanggal wajib diisi.');
+                    }
+                    if (sp2dIndividuModal) sp2dIndividuModal.show();
+                    return;
+                }
+
+                if (sp2dIndividuModal) sp2dIndividuModal.hide();
+
+                const konfHtml = `
+                    <div class="text-start">
+                        <div>NIDN: <b>${nidn}</b></div>
+                        <div>No SP2D: <b>${noSp2d}</b></div>
+                        <div>Tanggal: <b>${tglSp2d}</b></div>
+                        <div class="mt-2 alert alert-warning mb-0 small">Data SP2D tidak bisa diubah setelah diproses.</div>
+                    </div>
+                `;
+
+                let confirmed = false;
+                if (alertApi) {
+                    const r = await alertApi.question('Konfirmasi Proses SP2D Individu', konfHtml, { confirmButtonText: 'Ya, Proses' });
+                    confirmed = r && r.isConfirmed;
+                } else {
+                    confirmed = confirm('Yakin ingin memproses SP2D ini? Data tidak bisa diubah setelahnya.');
+                }
+
+                if (!confirmed) {
+                    if (sp2dIndividuModal) sp2dIndividuModal.show();
+                    return;
+                }
+
+                btnSubmitSp2dIndividu.disabled = true;
+                btnSubmitSp2dIndividu.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Memproses...';
+
+                try {
+                    const token = document.querySelector('meta[name="csrf-token"]')?.content
+                               || document.querySelector('input[name="_token"]')?.value;
+
+                    const response = await fetch("{{ route('admin.kekurangan-bayar.aksi-sp2d') }}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': token,
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            nidn: nidn,
+                            jenis_sp2d: jenis,
+                            no_sp2d: noSp2d,
+                            tanggal_sp2d: tglSp2d,
+                            uraian_pembayaran: uraianPembayaran,
+                        }),
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        if (sp2dIndividuModal) sp2dIndividuModal.hide();
+                        if (alertApi) {
+                            await alertApi.success('Berhasil', data.message || 'SP2D berhasil diproses.');
+                        } else {
+                            alert(data.message || 'SP2D berhasil diproses.');
+                        }
+                        window.location.reload();
+                    } else {
+                        if (alertApi) {
+                            await alertApi.error('Gagal', data.message || 'Terjadi kesalahan.');
+                        } else {
+                            alert(data.message || 'Terjadi kesalahan.');
+                        }
+                    }
+                } catch (err) {
+                    console.error('SP2D submit error:', err);
+                    if (alertApi) {
+                        await alertApi.error('Error', 'Gagal menghubungi server. Silakan coba lagi.');
+                    } else {
+                        alert('Gagal menghubungi server.');
+                    }
+                } finally {
+                    btnSubmitSp2dIndividu.disabled = false;
+                    btnSubmitSp2dIndividu.innerHTML = '<span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D';
                 }
             });
         }

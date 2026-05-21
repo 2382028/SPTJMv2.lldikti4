@@ -1,0 +1,23 @@
+/vendor/
+/node_modules/
+
+.env
+.env.*
+
+*.log
+*.zip
+
+old/
+
+# Laravel specific
+/storage/*.key
+/storage/logs/
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
+
+# OS & editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

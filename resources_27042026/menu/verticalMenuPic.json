@@ -1,0 +1,87 @@
+[
+  {
+    "menu": [
+      {
+        "url": "/pic/dashboard",
+        "name": "Dashboard",
+        "icon": "menu-icon tf-icons bx bx-home",
+        "slug": "dashboard"
+      },
+      {
+        "name": "Data Dosen",
+        "icon": "menu-icon tf-icons bx bx-data",
+        "slug": "data",
+        "submenu": [
+          {
+            "url": "pic/lihat-data-dosen",
+            "name": "Lihat Data Dosen",
+            "slug": "data-dosen"
+          },
+          {
+            "url": "pic/monitoring-usulan-dosen",
+            "name": "Monitoring Usulan Dosen",
+            "slug": "data-dosen-usulan"
+          }
+        ]
+      },
+      {
+        "name": "Data Sisternas",
+        "icon": "menu-icon tf-icons bx bx-data",
+        "slug": "data",
+        "submenu": [
+          {
+            "url": "pic/data-sisternas",
+            "name": "Lihat Data Sisternas",
+            "slug": "data-sisternas"
+          }
+        ]
+      },
+      {
+        "name": "Proses Persetujuan",
+        "icon": "menu-icon tf-icons bx bx-message-alt-check",
+        "slug": "proses",
+        "submenu": [
+          {
+            "url": "pic/validasi-usulan",
+            "name": "Validasi Usulan SPTJM",
+            "slug": "proses-usulan"
+          }
+        ]
+      },
+      {
+        "name": "Monitoring",
+        "icon": "menu-icon tf-icons bx bx-money",
+        "slug": "monitoring",
+        "submenu": [
+          {
+            "url": "pic/riwayat-pengajuan",
+            "name": "Riwayat Pengajuan",
+            "slug": "monitoring-pengajuan"
+          },
+          {
+            "url": "pic/laporan-keuangan",
+            "name": "Laporan Keuangan",
+            "slug": "monitoring-keuangan"
+          },
+          {
+            "url": "pic/monitoring-pembayaran",
+            "name": "Monitoring Pembayaran",
+            "slug": "monitoring-pembayaran"
+          }
+        ]
+      },
+      {
+        "url": "pic/complain",
+        "name": "Complain",
+        "icon": "menu-icon tf-icons bx bx-message-square-dots",
+        "slug": "pic.complain"
+      },
+      {
+        "url": "pic/sinkronisasi",
+        "name": "Sinkronisasi",
+        "icon": "menu-icon tf-icons bx bx-sync",
+        "slug": "sinkronisasi"
+      }
+    ]
+  }
+]

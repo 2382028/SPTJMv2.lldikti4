@@ -1,0 +1,101 @@
+[
+  {
+    "menu": [
+      {
+        "url": "/pts/dashboard",
+        "name": "Dashboard",
+        "icon": "menu-icon tf-icons bx bx-home",
+        "slug": "dashboard"
+      },
+      {
+        "name": "Data Dosen",
+        "icon": "menu-icon tf-icons bx bx-data",
+        "slug": "data",
+        "submenu": [
+          {
+            "url": "pts/lihat-data-dosen",
+            "name": "Lihat Data Dosen",
+            "slug": "data-dosen"
+          },
+          {
+            "url": "pts/monitoring-usulan-dosen",
+            "name": "Monitoring Usulan Dosen",
+            "slug": "data-dosen-usulan"
+          }
+        ] 
+      },
+      {
+        "name": "Usulan Pembayaran",
+        "icon": "menu-icon tf-icons bx bx-credit-card-front",
+        "slug": "pembayaran",
+        "submenu": [
+          {
+            "url": "pts/cek-data-dosen",
+            "name": "Cek Data Dosen",
+            "slug": "pembayaran-cek"
+          },
+          {
+            "name": "Tunjangan Profesi",
+            "slug": "pembayaran-tunjangan-profesi",
+            "submenu": [
+              {
+                "url": "pts/usulan-sptjm-berjalan",
+                "name": "Berjalan",
+                "slug": "tunjangan-profesi-berjalan"
+              },
+              {
+                "url": "pts/usulan-sptjm-susulan",
+                "name": "Susulan",
+                "slug": "tunjangan-profesi-susulan"
+              }
+            ]
+          },
+          {
+            "name": "Tunjangan Kinerja",
+            "slug": "pembayaran-tunjangan-kinerja",
+            "submenu": [
+              {
+                "url": "pts/usulan-tukin-berjalan",
+                "name": "Berjalan",
+                "slug": "tunjangan-kinerja-berjalan"
+              },
+              {
+                "url": "pts/usulan-tukin-susulan",
+                "name": "Susulan",
+                "slug": "tunjangan-kinerja-susulan"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Monitoring Pembayaran",
+        "icon": "menu-icon tf-icons bx bx-money",
+        "slug": "monitoring",
+        "submenu": [
+          {
+            "url": "pts/riwayat-pengajuan",
+            "name": "Riwayat Pengajuan",
+            "slug": "monitoring-pengajuan"
+          },
+          {
+            "url": "pts/laporan-keuangan",
+            "name": "Laporan Keuangan",
+            "slug": "monitoring-keuangan"
+          },
+          {
+            "url": "pts/monitoring-pembayaran",
+            "name": "Monitoring Pembayaran",
+            "slug": "monitoring-pembayaran"
+          }
+        ]
+      },
+      {
+        "url": "pts/complain",
+        "name": "Complain",
+        "icon": "menu-icon tf-icons bx bx-message-square-dots",
+        "slug": "pts.complain"
+      }
+    ]
+  }
+]

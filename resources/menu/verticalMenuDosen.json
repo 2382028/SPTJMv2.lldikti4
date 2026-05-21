@@ -1,0 +1,24 @@
+[
+  {
+    "menu": [
+      {
+        "url": "/dosen/dashboard",
+        "name": "Dashboard",
+        "icon": "menu-icon tf-icons bx bx-home",
+        "slug": "dosen.dashboard"
+      },
+      {
+        "url": "/dosen/informasi-pribadi",
+        "name": "Informasi Pribadi",
+        "icon": "menu-icon tf-icons bx bx-user",
+        "slug": "dosen.informasi-pribadi"
+      },
+      {
+        "url": "/dosen/monitoring-pembayaran",
+        "name": "Monitoring Pembayaran",
+        "icon": "menu-icon tf-icons bx bx-money",
+        "slug": "dosen.monitoring-pembayaran"
+      }
+    ]
+  }
+]

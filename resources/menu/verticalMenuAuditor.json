@@ -1,0 +1,27 @@
+[
+  {
+    "menu": [
+      {
+        "url": "/auditor/dashboard",
+        "name": "Dashboard",
+        "icon": "menu-icon tf-icons bx bx-home",
+        "slug": "auditor.dashboard"
+      },
+      {
+        "menuHeader": "Audit"
+      },
+      {
+        "url": "/auditor/data-dosen",
+        "name": "Data Dosen",
+        "icon": "menu-icon tf-icons bx bx-id-card",
+        "slug": "auditor.data-dosen"
+      },
+      {
+        "url": "/auditor/laporan-keuangan",
+        "name": "Laporan Keuangan",
+        "icon": "menu-icon tf-icons bx bx-money",
+        "slug": "auditor.laporan-keuangan"
+      }
+    ]
+  }
+]

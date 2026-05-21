@@ -1,0 +1,1270 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Helpers\ErrorAlias;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+
+class KekuranganBayarController extends Controller
+{
+  private function parseMoney($value): float
+  {
+    if ($value === null) return 0.0;
+    if (is_int($value) || is_float($value)) return (float) $value;
+    
+    $text = trim((string) $value);
+    if ($text === '' || $text === '-') return 0.0;
+    
+    // Optimasi: Lebih cepat dari regex untuk format ribuan standar "1.234.567"
+    $text = str_replace(['.', ','], '', $text);
+    
+    if (!is_numeric($text)) {
+        $text = preg_replace('/[^0-9\-]/', '', $text);
+    }
+    
+    if ($text === '' || $text === '-') return 0.0;
+    
+    return (float) $text;
+  }
+
+  private function insertRekapRow(array $payload): void
+  {
+    try {
+      DB::table('rekap_kekurangan')->insert($payload);
+    } catch (\Throwable $e) {
+      DB::table('u_rekap_kekurangan')->insert($payload);
+    }
+  }
+
+  private function ensurePublicFolder(string $folderName): string
+  {
+    $disk = Storage::disk('public');
+    if (!$disk->exists($folderName)) {
+      $disk->makeDirectory($folderName);
+    }
+    // Also ensure web-accessible directory exists (non-symlink deployments)
+    $webDir = public_path('storage/' . $folderName);
+    if (!is_dir($webDir)) {
+      @mkdir($webDir, 0755, true);
+    }
+    return $folderName;
+  }
+
+  /**
+   * Save content to both Storage::disk('public') AND the web-accessible public/storage/ folder.
+   * Ensures files are downloadable in deployments where public/storage is NOT a symlink.
+   */
+  private function putPublicFile(string $relativePath, string $content): void
+  {
+    Storage::disk('public')->put($relativePath, $content);
+    $webPath = public_path('storage/' . $relativePath);
+    $webDir = dirname($webPath);
+    if (!is_dir($webDir)) {
+      @mkdir($webDir, 0755, true);
+    }
+    file_put_contents($webPath, $content);
+  }
+
+  private function toExcelTsv(array $rows, string $tipe): string
+  {
+    $lines = [];
+    $header = ['NIDN', 'Nama', 'Jenis', 'Bank'];
+
+    if ($tipe === 'Semua' || $tipe === 'TPD') {
+      for ($i = 1; $i <= 12; $i++) {
+        $header[] = "TPD{$i}";
+      }
+    }
+    if ($tipe === 'Semua' || $tipe === 'TKGB') {
+      for ($i = 1; $i <= 12; $i++) {
+        $header[] = "TKGB{$i}";
+      }
+    }
+
+    $header = array_merge($header, ['Jumlah TPD', 'Jumlah TKGB', 'Pajak TPD', 'Pajak TKGB', 'Total Bersih']);
+    $lines[] = implode("\t", $header);
+
+    foreach ($rows as $row) {
+      $cols = [
+        $row->NIDN ?? $row->nidn ?? '',
+        $row->Nama ?? $row->nama ?? '',
+        $row->Jenis ?? $row->jenis ?? '',
+        $row->Bank ?? $row->bank ?? '',
+      ];
+
+      if ($tipe === 'Semua' || $tipe === 'TPD') {
+        for ($i = 1; $i <= 12; $i++) {
+          $key = 'k_tpd' . $i;
+          $cols[] = $row->$key ?? 0;
+        }
+      }
+      if ($tipe === 'Semua' || $tipe === 'TKGB') {
+        for ($i = 1; $i <= 12; $i++) {
+          $key = 'k_tkgb' . $i;
+          $cols[] = $row->$key ?? 0;
+        }
+      }
+
+      $cols[] = $row->jml_tpd ?? 0;
+      $cols[] = $row->jml_tkgb ?? 0;
+      $cols[] = $row->nilai_pjk_tpd ?? 0;
+      $cols[] = $row->nilai_pjk_tkgb ?? 0;
+      $cols[] = $row->bersih ?? 0;
+
+      $lines[] = implode("\t", $cols);
+    }
+
+    return implode("\n", $lines) . "\n";
+  }
+
+  private function toExcelHtmlLikeTable(array $rows, array $tarifMap): string
+  {
+    $fmt = function ($value): string {
+      $num = (float) ($value ?? 0);
+      return number_format((int) round($num), 0, ',', '.');
+    };
+
+    $bg = function (float $diff): string {
+      if ($diff == 0.0) return '';
+      return $diff > 0 ? 'background-color:#d4edda;' : 'background-color:#f8d7da;';
+    };
+
+    $escape = function ($text): string {
+      return htmlspecialchars((string) ($text ?? ''), ENT_QUOTES, 'UTF-8');
+    };
+
+    $months = [
+      1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr', 5 => 'Mei', 6 => 'Jun',
+      7 => 'Jul', 8 => 'Ags', 9 => 'Sep', 10 => 'Okt', 11 => 'Nov', 12 => 'Des',
+    ];
+
+    $html = [];
+    $html[] = '<html><head><meta charset="utf-8" />';
+    $html[] = '<style>';
+    $html[] = 'table{border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;}';
+    $html[] = 'th,td{border:1px solid #333;padding:4px;vertical-align:middle;}';
+    $html[] = 'th{text-align:center;font-weight:bold;background-color:#f2f2f2;}';
+    $html[] = 'td.num{text-align:right;}';
+    $html[] = '</style></head><body>';
+    $html[] = '<table>';
+
+    $html[] = '<tr>'
+      . '<th rowspan="3">No</th>'
+      . '<th rowspan="3">NIDN</th>'
+      . '<th rowspan="3">Nama</th>'
+      . '<th rowspan="3">Jenis</th>'
+      . '<th rowspan="3">Jabatan</th>'
+      . '<th rowspan="3">Status</th>'
+      . '<th colspan="48">Januari - Desember</th>'
+      . '<th colspan="11">Jumlah Kotor, Nilai Pajak, dan Bersih</th>'
+      . '</tr>';
+
+    $row2 = '<tr>';
+    foreach ($months as $label) {
+      $row2 .= '<th colspan="2">' . $label . '</th>';
+      $row2 .= '<th colspan="2">' . $label . ' (Aktual)</th>';
+    }
+    $row2 .= '<th colspan="2">Jumlah Kotor</th>';
+    $row2 .= '<th colspan="2">Nilai Pajak</th>';
+    $row2 .= '<th rowspan="2">Bersih</th>';
+    $row2 .= '<th colspan="2">Jumlah Kotor (Aktual)</th>';
+    $row2 .= '<th colspan="2">Nilai Pajak (Aktual)</th>';
+    $row2 .= '<th rowspan="2">Bersih (Aktual)</th>';
+    $row2 .= '<th rowspan="2">Kesimpulan</th>';
+    $row2 .= '</tr>';
+    $html[] = $row2;
+
+    $row3 = '<tr>';
+    for ($i = 1; $i <= 12; $i++) {
+      $row3 .= '<th>TPD</th><th>TKGB</th><th>TPD</th><th>TKGB</th>';
+    }
+    $row3 .= '<th>TPD</th><th>TKGB</th><th>TPD</th><th>TKGB</th>';
+    $row3 .= '<th>TPD</th><th>TKGB</th><th>TPD</th><th>TKGB</th>';
+    $row3 .= '</tr>';
+    $html[] = $row3;
+
+    $no = 1;
+    $grandBersih = 0.0;
+    $grandAktBersih = 0.0;
+    $grandKesimpulan = 0.0;
+    foreach ($rows as $r) {
+      $jenisRow = (string) ($r->Jenis ?? $r->jenis ?? '');
+      $jenisKey = trim($jenisRow);
+
+      $sumDbKotorTPD = 0.0; $sumDbKotorTKGB = 0.0; $sumDbPajakTPD = 0.0; $sumDbPajakTKGB = 0.0; $sumDbBersih = 0.0;
+      $sumAktKotorTPD = 0.0; $sumAktKotorTKGB = 0.0; $sumAktPajakTPD = 0.0; $sumAktPajakTKGB = 0.0; $sumAktBersih = 0.0;
+
+      $status = ((int) ($r->Aktif ?? 0)) === 1 ? 'Aktif' : 'Tidak Aktif';
+      $jabatan12 = (string) ($r->Jabatan12 ?? '');
+
+      $tr = '<tr>'
+        . '<td class="num">' . $no . '</td>'
+        . '<td>' . $escape($r->NIDN ?? $r->nidn ?? '') . '</td>'
+        . '<td>' . $escape($r->Nama ?? $r->nama ?? '') . '</td>'
+        . '<td>' . $escape($jenisRow) . '</td>'
+        . '<td>' . $escape($jabatan12) . '</td>'
+        . '<td>' . $escape($status) . '</td>';
+
+      for ($i = 1; $i <= 12; $i++) {
+        $noSp2d = trim((string) ($r->{'No_sp2d_' . $i} ?? $r->{'NoSP2D' . $i} ?? ''));
+        $tglSp2d = trim((string) ($r->{'Tgl_sp2d_' . $i} ?? $r->{'TglSP2D' . $i} ?? ''));
+        $sp2dOk = ($noSp2d !== '' && $tglSp2d !== '');
+
+        $dbKotorTPD = 0.0; $dbKotorTKGB = 0.0; $aktKotorTPD = 0.0; $aktKotorTKGB = 0.0; $tarif = 0.0; $kenaTKGB = false;
+
+        if ($sp2dOk) {
+          $dbKotorTPD = (float) $this->parseMoney($r->{'TPD' . $i} ?? 0);
+          $dbKotorTKGB = (float) $this->parseMoney($r->{'TKGB' . $i} ?? 0);
+
+          $gol = trim((string) ($r->{'Gol' . $i} ?? ''));
+          $jabatan = (string) ($r->{'Jabatan' . $i} ?? $jabatan12);
+          $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
+
+          $gaji = (float) $this->parseMoney($r->{'Gaji' . $i} ?? 0);
+          [$aktKotorTPD, $aktKotorTKGB] = $this->splitAktualKotorFromGaji($gaji, $kenaTKGB);
+
+          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+        }
+
+        $diffTpd = $dbKotorTPD - $aktKotorTPD;
+        $diffTkgb = $dbKotorTKGB - $aktKotorTKGB;
+
+        $tr .= '<td class="num" style="' . $bg($diffTpd) . '">' . $fmt($dbKotorTPD) . '</td>';
+        $tr .= '<td class="num" style="' . $bg($diffTkgb) . '">' . $fmt($dbKotorTKGB) . '</td>';
+        $tr .= '<td class="num">' . $fmt($aktKotorTPD) . '</td>';
+        $tr .= '<td class="num">' . $fmt($aktKotorTKGB) . '</td>';
+
+        if ($sp2dOk) {
+          $dbPajakTPD = $dbKotorTPD * $tarif;
+          $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
+          $dbBersih = ($dbKotorTPD - $dbPajakTPD) + ($dbKotorTKGB - $dbPajakTKGB);
+
+          $aktPajakTPD = $aktKotorTPD * $tarif;
+          $aktPajakTKGB = $kenaTKGB ? ($aktKotorTKGB * $tarif) : 0.0;
+          $aktBersih = ($aktKotorTPD - $aktPajakTPD) + ($aktKotorTKGB - $aktPajakTKGB);
+
+          $sumDbKotorTPD += $dbKotorTPD; $sumDbKotorTKGB += $dbKotorTKGB; $sumDbPajakTPD += $dbPajakTPD; $sumDbPajakTKGB += $dbPajakTKGB; $sumDbBersih += $dbBersih;
+          $sumAktKotorTPD += $aktKotorTPD; $sumAktKotorTKGB += $aktKotorTKGB; $sumAktPajakTPD += $aktPajakTPD; $sumAktPajakTKGB += $aktPajakTKGB; $sumAktBersih += $aktBersih;
+        }
+      }
+
+      $clsSumTpd = $bg($sumDbKotorTPD - $sumAktKotorTPD);
+      $clsSumTkgb = $bg($sumDbKotorTKGB - $sumAktKotorTKGB);
+      $clsPjkTpd = $bg($sumDbPajakTPD - $sumAktPajakTPD);
+      $clsPjkTkgb = $bg($sumDbPajakTKGB - $sumAktPajakTKGB);
+      $clsBersih = $bg($sumDbBersih - $sumAktBersih);
+
+      $kesimpulan = $sumDbBersih - $sumAktBersih;
+      $clsKesimpulan = $bg($kesimpulan);
+
+      $tr .= '<td class="num" style="' . $clsSumTpd . '">' . $fmt($sumDbKotorTPD) . '</td>';
+      $tr .= '<td class="num" style="' . $clsSumTkgb . '">' . $fmt($sumDbKotorTKGB) . '</td>';
+      $tr .= '<td class="num" style="' . $clsPjkTpd . '">' . $fmt($sumDbPajakTPD) . '</td>';
+      $tr .= '<td class="num" style="' . $clsPjkTkgb . '">' . $fmt($sumDbPajakTKGB) . '</td>';
+      $tr .= '<td class="num" style="' . $clsBersih . '">' . $fmt($sumDbBersih) . '</td>';
+
+      $tr .= '<td class="num">' . $fmt($sumAktKotorTPD) . '</td>';
+      $tr .= '<td class="num">' . $fmt($sumAktKotorTKGB) . '</td>';
+      $tr .= '<td class="num">' . $fmt($sumAktPajakTPD) . '</td>';
+      $tr .= '<td class="num">' . $fmt($sumAktPajakTKGB) . '</td>';
+      $tr .= '<td class="num">' . $fmt($sumAktBersih) . '</td>';
+      $tr .= '<td class="num" style="' . $clsKesimpulan . '">' . $fmt($kesimpulan) . '</td>';
+
+      $tr .= '</tr>';
+      $html[] = $tr;
+
+      // Akumulasi grand total
+      $grandBersih += $sumDbBersih;
+      $grandAktBersih += $sumAktBersih;
+      $grandKesimpulan += $kesimpulan;
+      $no++;
+    }
+
+    // Grand Total row
+    $totalColSpan = 6 + (12 * 4) + 10; // No+NIDN+Nama+Jenis+Jabatan+Status + 12 bulan × 4 kolom + 10 kolom jumlah
+    $html[] = '<tr style="background-color:#e8e8e8;font-weight:bold;">'
+      . '<td colspan="' . ($totalColSpan) . '" style="text-align:right;font-weight:bold;">GRAND TOTAL PEMBAYARAN</td>'
+      . '<td class="num" style="font-weight:bold;background-color:#d4edda;">' . $fmt(abs($grandKesimpulan)) . '</td>'
+      . '</tr>';
+
+    $html[] = '</table></body></html>';
+    return implode("\n", $html);
+  }
+
+  private function loadTarifPajakMap(): array
+  {
+    $tarifMap = [];
+    $pajakRows = DB::table('d_pajak')->select('status', 'akumulasi', 'tarif_pajak')->get();
+    foreach ($pajakRows as $p) {
+      $status = trim((string) ($p->status ?? ''));
+      $akum = trim((string) ($p->akumulasi ?? ''));
+      if ($status === '' || $akum === '') continue;
+      $tarifMap[$status][$akum] = (float) ($p->tarif_pajak ?? 0);
+    }
+    return $tarifMap;
+  }
+
+  private function computeKekuranganPayload(string $versi, string $tipe, string $jenis, string $bank, array $tarifMap, bool $skipExisting = true): array
+  {
+    @set_time_limit(0);
+    @ini_set('memory_limit', '-1');
+    DB::disableQueryLog();
+
+    $existingNidnSet = [];
+    if ($skipExisting) {
+      try {
+        $existingNidn = DB::table('t_kekurangan')->where('tahun', $versi)->whereNotNull('nidn')->pluck('nidn');
+        foreach ($existingNidn as $n) {
+          $t = trim((string) $n);
+          if ($t !== '') {
+            $existingNidnSet[$t] = true;
+          }
+        }
+      } catch (\Throwable $e) {
+        Log::warning('KekuranganBayarController::compute - gagal memuat existing NIDN: ' . $e->getMessage());
+      }
+    }
+
+    $baseQuery = DB::table('s_transaksi_2 as s')->where('s.Tahun_Versi', $versi);
+
+    if ($jenis !== 'Semua') {
+      if (strtoupper($jenis) === 'PNS') {
+        $baseQuery->where(function ($q) {
+          $q->whereRaw("UPPER(s.Jenis) LIKE '%PNS%'")
+            ->whereRaw("UPPER(s.Jenis) NOT LIKE '%NON%'");
+        });
+      } elseif (strtoupper($jenis) === 'NON PNS') {
+        $baseQuery->whereRaw("UPPER(s.Jenis) LIKE '%NON%'");
+      } else {
+        $baseQuery->whereRaw("TRIM(s.Jenis) = ?", [trim($jenis)]);
+      }
+    }
+    if ($bank !== 'Semua') {
+      $baseQuery->whereRaw('TRIM(s.Bank) = ?', [trim($bank)]);
+    }
+
+    $selects = [
+      's.NIDN', 's.Nama', 's.Jenis', 's.Jabatan12', 's.Aktif', 's.Bank',
+    ];
+
+    for ($i = 1; $i <= 12; $i++) {
+      $selects[] = DB::raw('s.Gol' . $i . ' as Gol' . $i);
+      $selects[] = DB::raw('s.Jabatan' . $i . ' as Jabatan' . $i);
+      $selects[] = DB::raw('s.TPD' . $i . ' as ExpTPD' . $i);
+      $selects[] = DB::raw('s.TKGB' . $i . ' as ExpTKGB' . $i);
+      $selects[] = DB::raw('s.No_sp2d_' . $i . ' as NoSP2D' . $i);
+      $selects[] = DB::raw('s.Tgl_sp2d_' . $i . ' as TglSP2D' . $i);
+      $selects[] = DB::raw('s.bersihTPD' . $i . ' as PaidTPD' . $i);
+      $selects[] = DB::raw('s.bersihTKGB' . $i . ' as PaidTKGB' . $i);
+      $selects[] = DB::raw('s.Gaji' . $i . ' as PaidGaji' . $i);
+    }
+
+    $cursor = $baseQuery->select($selects)->orderBy('s.NIDN')->cursor();
+    $payloadRows = [];
+
+    foreach ($cursor as $row) {
+      $nidn = trim((string) ($row->NIDN ?? ''));
+      if ($nidn === '') continue;
+      if ($skipExisting && isset($existingNidnSet[$nidn])) continue;
+
+      $nama = (string) ($row->Nama ?? '');
+      $jenisRow = (string) ($row->Jenis ?? '');
+
+      $sumTPD = 0.0; $sumTKGB = 0.0; $sumPajakTPD = 0.0; $sumPajakTKGB = 0.0; $sumPaid = 0.0; $sumExpectedBersih = 0.0;
+      $hasAnySP2D = false;
+
+      $rand = strtoupper(substr(md5(uniqid((string) mt_rand(), true)), 0, 6));
+      $ts = date('YmdHis');
+      $nidnCompact = preg_replace('/[^A-Za-z0-9]/', '', $nidn);
+
+      $payload = [
+        'nidn' => $nidn, 'nama' => $nama, 'tahun' => (string) $versi,
+        'NIDN' => $nidn, 'Nama' => $nama, 'Jenis' => $jenisRow,
+        'Jabatan12' => (string) ($row->Jabatan12 ?? ''),
+        'Aktif' => (int) ($row->Aktif ?? 0),
+      ];
+
+      for ($i = 1; $i <= 12; $i++) {
+        $noSp2d = trim((string) ($row->{'NoSP2D' . $i} ?? ''));
+        $tglSp2d = trim((string) ($row->{'TglSP2D' . $i} ?? ''));
+        $sp2dOk = ($noSp2d !== '' && $tglSp2d !== '');
+        if ($sp2dOk) {
+          $hasAnySP2D = true;
+        }
+
+        $kTPD = 0.0; $kTKGB = 0.0; $aktTPDInt = 0; $aktTKGBInt = 0; $dbTPDInt = 0; $dbTKGBInt = 0;
+
+        if ($sp2dOk) {
+          $gol = trim((string) ($row->{'Gol' . $i} ?? ''));
+          $jabatan = (string) ($row->{'Jabatan' . $i} ?? '');
+          $payload['Gol' . $i] = $gol;
+          $payload['Jabatan' . $i] = $jabatan;
+          $payload['sp2d_ok' . $i] = 1;
+          $tarif = (float) (($tarifMap[$jenisRow][$gol] ?? 0) ?: 0);
+
+          $dbKotorTPD = $this->parseMoney($row->{'ExpTPD' . $i} ?? 0);
+          $dbKotorTKGB = $this->parseMoney($row->{'ExpTKGB' . $i} ?? 0);
+          $dbTPDInt = (int) round($dbKotorTPD);
+          $dbTKGBInt = (int) round($dbKotorTKGB);
+
+          $gaji = $this->parseMoney($row->{'PaidGaji' . $i} ?? 0);
+          $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
+          [$aktKotorTPD, $aktKotorTKGB] = $this->splitAktualKotorFromGaji($gaji, $kenaTKGB);
+          $aktTPDInt = (int) round($aktKotorTPD);
+          $aktTKGBInt = (int) round($aktKotorTKGB);
+
+          $kTPD = $dbKotorTPD - $aktKotorTPD;
+          $kTKGB = $dbKotorTKGB - $aktKotorTKGB;
+
+          $dbPajakTPD = $dbKotorTPD * $tarif;
+          $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
+          $aktPajakTPD = $aktKotorTPD * $tarif;
+          $aktPajakTKGB = $kenaTKGB ? ($aktKotorTKGB * $tarif) : 0.0;
+
+          $sumPajakTPD += ($dbPajakTPD - $aktPajakTPD);
+          $sumPajakTKGB += ($dbPajakTKGB - $aktPajakTKGB);
+
+          $dbBersih = ($dbKotorTPD - $dbPajakTPD) + ($dbKotorTKGB - $dbPajakTKGB);
+          $aktBersih = ($aktKotorTPD - $aktPajakTPD) + ($aktKotorTKGB - $aktPajakTKGB);
+          $sumExpectedBersih += ($dbBersih - $aktBersih);
+          $sumPaid += $gaji;
+        }
+        if (!$sp2dOk) {
+          $payload['sp2d_ok' . $i] = 0;
+        }
+
+        $payload['k_tpd' . $i] = $kTPD; $payload['k_tkgb' . $i] = $kTKGB;
+        $payload['exp_tpd' . $i] = $aktTPDInt; $payload['exp_tkgb' . $i] = $aktTKGBInt;
+        $payload['db_tpd' . $i] = $dbTPDInt; $payload['db_tkgb' . $i] = $dbTKGBInt;
+        $sumTPD += $kTPD; $sumTKGB += $kTKGB;
+      }
+
+      if ($tipe === 'TPD' && $sumTPD == 0.0) continue;
+      if ($tipe === 'TKGB' && $sumTKGB == 0.0) continue;
+      if (!$hasAnySP2D) continue;
+      if (abs($sumTPD) < 0.0000001 && abs($sumTKGB) < 0.0000001) continue;
+      if (abs($sumExpectedBersih) < 0.0000001 && abs($sumPaid) < 0.0000001) continue;
+
+      $payload['jml_tpd'] = $sumTPD; $payload['jml_tkgb'] = $sumTKGB;
+      $payload['nilai_pjk_tpd'] = $sumPajakTPD; $payload['nilai_pjk_tkgb'] = $sumPajakTKGB;
+      $payload['bersih'] = (($sumTPD + $sumTKGB) - ($sumPajakTPD + $sumPajakTKGB));
+      $payload['total_pembayaran'] = $sumPaid;
+
+      $prefix = ((float) $payload['bersih']) > 0 ? 'KLB' : 'KKB';
+      $payload['id'] = substr(sprintf('%s-%s-%s-%s-%s', $prefix, $versi, $ts, $nidnCompact ?: 'X', $rand), 0, 50);
+
+      $payloadRows[] = (object) $payload;
+      if ($skipExisting) {
+        $existingNidnSet[$nidn] = true;
+      }
+    }
+
+    return $payloadRows;
+  }
+
+  public function cek(Request $request)
+  {
+    $request->validate([
+      'periode' => 'required',
+      'tipe' => 'required',
+      'jenis' => 'required',
+      'bank' => 'required',
+    ]);
+
+    $versi = session('tahun');
+    if (!$versi) {
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Tahun versi belum dipilih pada sesi.');
+    }
+
+    $tipe = $request->input('tipe', 'Semua');
+    $jenis = $request->input('jenis', 'Semua');
+    $bank = $request->input('bank', 'Semua');
+
+    try {
+      $tarifMap = $this->loadTarifPajakMap();
+    } catch (\Throwable $e) {
+      $alias = ErrorAlias::fromThrowable($e, 'ADM-KEKURANGAN-PAJAK');
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal memuat tarif pajak. ' . $alias['message']);
+    }
+
+    try {
+      $rowsPayload = $this->computeKekuranganPayload((string) $versi, $tipe, $jenis, $bank, $tarifMap, true);
+      if (empty($rowsPayload)) {
+        return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Tidak ada data untuk dicek (mungkin sudah pernah diproses / total pembayaran 0 / belum ada SP2D).');
+      }
+
+      $kurangArr = [];
+      $lebihArr = [];
+
+      foreach ($rowsPayload as $obj) {
+        $row = (object) ((array) $obj);
+        $jenisRow = (string) ($row->Jenis ?? '');
+        $jenisKey = trim($jenisRow);
+
+        $sumDbKotorTPD = 0.0; $sumDbKotorTKGB = 0.0; $sumDbPajakTPD = 0.0; $sumDbPajakTKGB = 0.0; $sumDbBersih = 0.0;
+        $sumAktKotorTPD = 0.0; $sumAktKotorTKGB = 0.0; $sumAktPajakTPD = 0.0; $sumAktPajakTKGB = 0.0; $sumAktBersih = 0.0;
+
+        for ($i = 1; $i <= 12; $i++) {
+          $sp2dOk = (int) ($row->{'sp2d_ok' . $i} ?? 0) === 1;
+          if (!$sp2dOk) {
+            continue;
+          }
+
+          $dbKotorTPD = (float) $this->parseMoney($row->{'db_tpd' . $i} ?? 0);
+          $dbKotorTKGB = (float) $this->parseMoney($row->{'db_tkgb' . $i} ?? 0);
+          $aktKotorTPD = (float) $this->parseMoney($row->{'exp_tpd' . $i} ?? 0);
+          $aktKotorTKGB = (float) $this->parseMoney($row->{'exp_tkgb' . $i} ?? 0);
+
+          $gol = trim((string) ($row->{'Gol' . $i} ?? ''));
+          $jabatan = (string) ($row->{'Jabatan' . $i} ?? ($row->Jabatan12 ?? ''));
+          $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
+          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+
+          $dbPajakTPD = $dbKotorTPD * $tarif;
+          $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
+          $dbBersih = ($dbKotorTPD - $dbPajakTPD) + ($dbKotorTKGB - $dbPajakTKGB);
+
+          $aktPajakTPD = $aktKotorTPD * $tarif;
+          $aktPajakTKGB = $kenaTKGB ? ($aktKotorTKGB * $tarif) : 0.0;
+          $aktBersih = ($aktKotorTPD - $aktPajakTPD) + ($aktKotorTKGB - $aktPajakTKGB);
+
+          $sumDbKotorTPD += $dbKotorTPD; $sumDbKotorTKGB += $dbKotorTKGB; $sumDbPajakTPD += $dbPajakTPD; $sumDbPajakTKGB += $dbPajakTKGB; $sumDbBersih += $dbBersih;
+          $sumAktKotorTPD += $aktKotorTPD; $sumAktKotorTKGB += $aktKotorTKGB; $sumAktPajakTPD += $aktPajakTPD; $sumAktPajakTKGB += $aktPajakTKGB; $sumAktBersih += $aktBersih;
+        }
+
+        $row->jml_tpd = $sumDbKotorTPD; $row->jml_tkgb = $sumDbKotorTKGB; $row->nilai_pjk_tpd = $sumDbPajakTPD; $row->nilai_pjk_tkgb = $sumDbPajakTKGB; $row->bersih = $sumDbBersih;
+        $row->jml_tpd_akt = $sumAktKotorTPD; $row->jml_tkgb_akt = $sumAktKotorTKGB; $row->nilai_pjk_tpd_akt = $sumAktPajakTPD; $row->nilai_pjk_tkgb_akt = $sumAktPajakTKGB; $row->bersih_akt = $sumAktBersih;
+
+        $kesimpulan = $sumDbBersih - $sumAktBersih;
+        if ($kesimpulan < 0) {
+            $kurangArr[] = $row;
+        } elseif ($kesimpulan > 0) {
+            $lebihArr[] = $row;
+        }
+      }
+
+      return view('admin.kekurangan-bayar', [
+        'versi' => $versi,
+        'detailKurang' => collect($kurangArr),
+        'detailLebih'  => collect($lebihArr),
+        'rekapKurang'  => collect(),
+        'rekapLebih'   => collect(),
+        'bankList' => DB::table('b_bank')->select('nama_bank')->whereNotNull('nama_bank')->where('nama_bank','!=','')->distinct()->orderBy('nama_bank')->pluck('nama_bank'),
+        'flashInfo' => 'Cek Data selesai (tanpa insert). Klik Proses untuk menyimpan ke database.',
+      ]);
+    } catch (\Throwable $e) {
+      $alias = ErrorAlias::fromThrowable($e, 'ADM-KEKURANGAN-CEK');
+      Log::error('KekuranganBayarController::cek - gagal hitung cek data', [
+        'alias' => $alias['code'],
+        'versi' => $versi,
+        'tipe' => $tipe,
+        'jenis' => $jenis,
+        'bank' => $bank,
+        'message' => $e->getMessage(),
+        'trace' => $e->getTraceAsString(),
+      ]);
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal cek data. ' . $alias['message']);
+    }
+  }
+
+  private function isGuruBesarAtauProfesor($jabatan): bool
+  {
+    $text = strtolower(trim((string) $jabatan));
+    if ($text === '') {
+      return false;
+    }
+    return strpos($text, 'guru besar') !== false || strpos($text, 'profesor') !== false;
+  }
+
+  private function splitAktualKotorFromGaji(float $gaji, bool $kenaTKGB): array
+  {
+    if ($gaji == 0.0) {
+      return [0.0, 0.0];
+    }
+    if (!$kenaTKGB) {
+      return [$gaji, 0.0];
+    }
+
+    $tpd = $gaji / 3.0;
+    $tkgb = $gaji - $tpd;
+    return [$tpd, $tkgb];
+  }
+
+  /**
+   * Compute grand total (sum of abs(kesimpulan) per dosen) — same logic as toExcelHtmlLikeTable.
+   * kesimpulan = sumDbBersih - sumAktBersih per dosen.
+   */
+  private function computeGrandTotalFromRows($rows, array $tarifMap): float
+  {
+    $grandTotal = 0.0;
+    foreach ($rows as $r) {
+      $jenisKey = trim((string) ($r->Jenis ?? $r->jenis ?? ''));
+      $jabatan12 = (string) ($r->Jabatan12 ?? '');
+      $sumDbBersih = 0.0;
+      $sumAktBersih = 0.0;
+
+      for ($i = 1; $i <= 12; $i++) {
+        $noSp2d = trim((string) ($r->{'No_sp2d_' . $i} ?? ''));
+        $tglSp2d = trim((string) ($r->{'Tgl_sp2d_' . $i} ?? ''));
+        if ($noSp2d === '' || $tglSp2d === '') continue;
+
+        $dbKotorTPD = (float) $this->parseMoney($r->{'TPD' . $i} ?? 0);
+        $dbKotorTKGB = (float) $this->parseMoney($r->{'TKGB' . $i} ?? 0);
+        $gol = trim((string) ($r->{'Gol' . $i} ?? ''));
+        $jabatan = (string) ($r->{'Jabatan' . $i} ?? $jabatan12);
+        $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
+        $gaji = (float) $this->parseMoney($r->{'Gaji' . $i} ?? 0);
+        [$aktKotorTPD, $aktKotorTKGB] = $this->splitAktualKotorFromGaji($gaji, $kenaTKGB);
+        $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+
+        $dbPajakTPD = $dbKotorTPD * $tarif;
+        $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
+        $dbBersih = ($dbKotorTPD - $dbPajakTPD) + ($dbKotorTKGB - $dbPajakTKGB);
+
+        $aktPajakTPD = $aktKotorTPD * $tarif;
+        $aktPajakTKGB = $kenaTKGB ? ($aktKotorTKGB * $tarif) : 0.0;
+        $aktBersih = ($aktKotorTPD - $aktPajakTPD) + ($aktKotorTKGB - $aktPajakTKGB);
+
+        $sumDbBersih += $dbBersih;
+        $sumAktBersih += $aktBersih;
+      }
+      $kesimpulan = $sumDbBersih - $sumAktBersih;
+      $grandTotal += abs($kesimpulan);
+    }
+    return $grandTotal;
+  }
+
+  public function index()
+  {
+    $versi = session('tahun');
+
+    // Ambil NIDN yang sudah pernah diproses SP2D (sudah ada di t_uraian_pembayaran)
+    // sehingga tidak ditampilkan lagi di tabel kurang/lebih bayar
+    $paidNidns = [];
+    try {
+      $paidNidns = DB::table('t_uraian_pembayaran')
+        ->where('tahun', $versi)
+        ->whereNotNull('nomor')
+        ->where('nomor', '!=', '')
+        ->select('nidn')
+        ->distinct()
+        ->pluck('nidn')
+        ->toArray();
+    } catch (\Throwable $e) { /* table might not exist yet */ }
+
+    $baseQuery = DB::table('s_transaksi_2 as k')
+      ->join('t_kekurangan as k2', function ($join) {
+        $join->on('k.NIDN', '=', 'k2.nidn');
+      })
+      ->where('k2.tahun', $versi)
+      ->where('k.Tahun_Versi', $versi);
+
+    // Filter NIDN yang sudah dibayarkan
+    if (!empty($paidNidns)) {
+      $baseQuery->whereNotIn('k.NIDN', $paidNidns);
+    }
+
+    $baseQuery->select(
+        'k.NIDN', 'k.Nama', 'k.Jenis', 'k.Jabatan12', 'k.Aktif', 'k.Bank',
+        'k2.k_tpd1', 'k2.k_tkgb1', 'k2.k_tpd2', 'k2.k_tkgb2',
+        'k2.k_tpd3', 'k2.k_tkgb3', 'k2.k_tpd4', 'k2.k_tkgb4',
+        'k2.k_tpd5', 'k2.k_tkgb5', 'k2.k_tpd6', 'k2.k_tkgb6',
+        'k2.k_tpd7', 'k2.k_tkgb7', 'k2.k_tpd8', 'k2.k_tkgb8',
+        'k2.k_tpd9', 'k2.k_tkgb9', 'k2.k_tpd10', 'k2.k_tkgb10',
+        'k2.k_tpd11', 'k2.k_tkgb11', 'k2.k_tpd12', 'k2.k_tkgb12',
+        'k2.jml_tpd', 'k2.jml_tkgb', 'k2.nilai_pjk_tpd', 'k2.nilai_pjk_tkgb', 'k2.bersih',
+        'k.Gol1', 'k.Gol2', 'k.Gol3', 'k.Gol4', 'k.Gol5', 'k.Gol6', 'k.Gol7', 'k.Gol8', 'k.Gol9', 'k.Gol10', 'k.Gol11', 'k.Gol12',
+        'k.Jabatan1', 'k.Jabatan2', 'k.Jabatan3', 'k.Jabatan4', 'k.Jabatan5', 'k.Jabatan6', 'k.Jabatan7', 'k.Jabatan8', 'k.Jabatan9', 'k.Jabatan10', 'k.Jabatan11', 'k.Jabatan12 as Jabatan12Monthly',
+        'k.TPD1', 'k.TPD2', 'k.TPD3', 'k.TPD4', 'k.TPD5', 'k.TPD6', 'k.TPD7', 'k.TPD8', 'k.TPD9', 'k.TPD10', 'k.TPD11', 'k.TPD12',
+        'k.TKGB1', 'k.TKGB2', 'k.TKGB3', 'k.TKGB4', 'k.TKGB5', 'k.TKGB6', 'k.TKGB7', 'k.TKGB8', 'k.TKGB9', 'k.TKGB10', 'k.TKGB11', 'k.TKGB12',
+        'k.Gaji1', 'k.Gaji2', 'k.Gaji3', 'k.Gaji4', 'k.Gaji5', 'k.Gaji6', 'k.Gaji7', 'k.Gaji8', 'k.Gaji9', 'k.Gaji10', 'k.Gaji11', 'k.Gaji12',
+        'k.bersihTPD1', 'k.bersihTPD2', 'k.bersihTPD3', 'k.bersihTPD4', 'k.bersihTPD5', 'k.bersihTPD6', 'k.bersihTPD7', 'k.bersihTPD8', 'k.bersihTPD9', 'k.bersihTPD10', 'k.bersihTPD11', 'k.bersihTPD12',
+        'k.bersihTKGB1', 'k.bersihTKGB2', 'k.bersihTKGB3', 'k.bersihTKGB4', 'k.bersihTKGB5', 'k.bersihTKGB6', 'k.bersihTKGB7', 'k.bersihTKGB8', 'k.bersihTKGB9', 'k.bersihTKGB10', 'k.bersihTKGB11', 'k.bersihTKGB12',
+        'k.No_sp2d_1', 'k.No_sp2d_2', 'k.No_sp2d_3', 'k.No_sp2d_4', 'k.No_sp2d_5', 'k.No_sp2d_6', 'k.No_sp2d_7', 'k.No_sp2d_8', 'k.No_sp2d_9', 'k.No_sp2d_10', 'k.No_sp2d_11', 'k.No_sp2d_12',
+        'k.Tgl_sp2d_1', 'k.Tgl_sp2d_2', 'k.Tgl_sp2d_3', 'k.Tgl_sp2d_4', 'k.Tgl_sp2d_5', 'k.Tgl_sp2d_6', 'k.Tgl_sp2d_7', 'k.Tgl_sp2d_8', 'k.Tgl_sp2d_9', 'k.Tgl_sp2d_10', 'k.Tgl_sp2d_11', 'k.Tgl_sp2d_12'
+      );
+
+    $queryKurang = (clone $baseQuery)->whereRaw('(k2.bersih + 0) < 0')->paginate(50, ['*'], 'kurang_page');
+    $queryLebih = (clone $baseQuery)->whereRaw('(k2.bersih + 0) > 0')->paginate(50, ['*'], 'lebih_page');
+
+    try {
+      $tarifMap = $this->loadTarifPajakMap();
+    } catch (\Throwable $e) {
+      $tarifMap = [];
+    }
+
+    $transformer = function ($row) use ($tarifMap) {
+      $jenisRow = (string) ($row->Jenis ?? '');
+      $jenisKey = trim($jenisRow);
+
+      $sumDbKotorTPD = 0.0; $sumDbKotorTKGB = 0.0; $sumDbPajakTPD = 0.0; $sumDbPajakTKGB = 0.0; $sumDbBersih = 0.0;
+      $sumAktKotorTPD = 0.0; $sumAktKotorTKGB = 0.0; $sumAktPajakTPD = 0.0; $sumAktPajakTKGB = 0.0; $sumAktBersih = 0.0;
+      
+      for ($i = 1; $i <= 12; $i++) {
+        $noSp2d = trim((string) ($row->{'No_sp2d_' . $i} ?? ''));
+        $tglSp2d = trim((string) ($row->{'Tgl_sp2d_' . $i} ?? ''));
+        $sp2dOk = ($noSp2d !== '' && $tglSp2d !== '');
+
+        $dbTPD = 0; $dbTKGB = 0; $aktTPD = 0; $aktTKGB = 0;
+        if ($sp2dOk) {
+          $dbKotorTPD = (float) $this->parseMoney($row->{'TPD' . $i} ?? 0);
+          $dbKotorTKGB = (float) $this->parseMoney($row->{'TKGB' . $i} ?? 0);
+          $dbTPD = (int) round($dbKotorTPD);
+          $dbTKGB = (int) round($dbKotorTKGB);
+
+          $gol = trim((string) ($row->{'Gol' . $i} ?? ''));
+          $jabatan = (string) ($row->{'Jabatan' . $i} ?? ($row->Jabatan12 ?? ''));
+          $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
+
+          $gaji = (float) $this->parseMoney($row->{'Gaji' . $i} ?? 0);
+          [$aktKotorTPD, $aktKotorTKGB] = $this->splitAktualKotorFromGaji($gaji, $kenaTKGB);
+          $aktTPD = (int) round($aktKotorTPD);
+          $aktTKGB = (int) round($aktKotorTKGB);
+
+          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+
+          $dbPajakTPD = $dbKotorTPD * $tarif;
+          $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
+          $dbBersih = ($dbKotorTPD - $dbPajakTPD) + ($dbKotorTKGB - $dbPajakTKGB);
+
+          $aktPajakTPD = $aktKotorTPD * $tarif;
+          $aktPajakTKGB = $kenaTKGB ? ($aktKotorTKGB * $tarif) : 0.0;
+          $aktBersih = ($aktKotorTPD - $aktPajakTPD) + ($aktKotorTKGB - $aktPajakTKGB);
+
+          $sumDbKotorTPD += $dbKotorTPD; $sumDbKotorTKGB += $dbKotorTKGB; $sumDbPajakTPD += $dbPajakTPD; $sumDbPajakTKGB += $dbPajakTKGB; $sumDbBersih += $dbBersih;
+          $sumAktKotorTPD += $aktKotorTPD; $sumAktKotorTKGB += $aktKotorTKGB; $sumAktPajakTPD += $aktPajakTPD; $sumAktPajakTKGB += $aktPajakTKGB; $sumAktBersih += $aktBersih;
+        }
+        $row->{'db_tpd' . $i} = $dbTPD; $row->{'db_tkgb' . $i} = $dbTKGB;
+        $row->{'exp_tpd' . $i} = $aktTPD; $row->{'exp_tkgb' . $i} = $aktTKGB;
+      }
+
+      $row->jml_tpd = $sumDbKotorTPD; $row->jml_tkgb = $sumDbKotorTKGB; $row->nilai_pjk_tpd = $sumDbPajakTPD; $row->nilai_pjk_tkgb = $sumDbPajakTKGB; $row->bersih = $sumDbBersih;
+      $row->jml_tpd_akt = $sumAktKotorTPD; $row->jml_tkgb_akt = $sumAktKotorTKGB; $row->nilai_pjk_tpd_akt = $sumAktPajakTPD; $row->nilai_pjk_tkgb_akt = $sumAktPajakTKGB; $row->bersih_akt = $sumAktBersih;
+
+      return $row;
+    };
+
+    foreach ($queryKurang as $row) {
+        $transformer($row);
+    }
+    
+    foreach ($queryLebih as $row) {
+        $transformer($row);
+    }
+
+    $detailKurang = $queryKurang;
+    $detailLebih  = $queryLebih;
+
+    $rekapKurang = DB::table('u_rekap_kekurangan')->whereRaw('RIGHT(periode, 4) = ?', [$versi])->where(function ($q) {
+        $q->where('excel', 'like', 'rekap_kekurangan/%')->orWhere('periode', 'like', 'Kurang%');
+    })->orderByDesc('created_at')->get();
+
+    $rekapLebih = DB::table('u_rekap_kekurangan')->whereRaw('RIGHT(periode, 4) = ?', [$versi])->where(function ($q) {
+        $q->where('excel', 'like', 'rekap_kelebihan/%')->orWhere('periode', 'like', 'Lebih%');
+    })->orderByDesc('created_at')->get();
+
+    // Backfill total_nominal untuk rekap yang belum terisi (atau terisi 0)
+    $allRekapIds = $rekapKurang->merge($rekapLebih);
+    $tarifMapBackfill = null; // lazy-load
+    foreach ($allRekapIds as $rekap) {
+      if (!empty($rekap->total_nominal) && (float) $rekap->total_nominal > 0) continue;
+
+      // Lazy-load tarif map
+      if ($tarifMapBackfill === null) {
+        $tarifMapBackfill = $this->loadTarifPajakMap();
+      }
+
+      $periodeText = strtolower(trim($rekap->periode ?? ''));
+      $isKurang = (strpos($periodeText, 'kurang') !== false);
+      $bersihCond = $isKurang ? '(ku.bersih + 0) < 0' : '(ku.bersih + 0) > 0';
+
+      // Build query yang sama seperti proses()
+      $q = DB::table('t_kekurangan as ku')
+        ->join('s_transaksi_2 as k', 'ku.nidn', '=', 'k.NIDN')
+        ->where('ku.tahun', $versi)
+        ->where('k.Tahun_Versi', $versi)
+        ->whereRaw($bersihCond);
+
+      // Filter tipe
+      $rekapTipe = trim($rekap->tipe ?? 'Semua');
+      if ($rekapTipe !== 'Semua') {
+        if ($rekapTipe === 'TPD') {
+          $q->whereRaw('(ku.jml_tpd + 0) <> 0');
+        } elseif ($rekapTipe === 'TKGB') {
+          $q->whereRaw('(ku.jml_tkgb + 0) <> 0');
+        }
+      }
+
+      // Filter bank
+      $rekapBank = trim($rekap->bank ?? 'Semua');
+      if ($rekapBank !== 'Semua') {
+        $q->whereRaw('TRIM(k.Bank) = ?', [$rekapBank]);
+      }
+
+      // Filter jenis dari excel filename
+      $excelPath = strtolower(trim($rekap->excel ?? ''));
+      if (strpos($excelPath, '_non_pns_') !== false) {
+        $q->whereRaw("UPPER(k.Jenis) LIKE '%NON%'");
+      } elseif (strpos($excelPath, '_pns_') !== false && strpos($excelPath, '_non_pns_') === false) {
+        $q->where(function ($sub) {
+          $sub->whereRaw("UPPER(k.Jenis) LIKE '%PNS%'")
+              ->whereRaw("UPPER(k.Jenis) NOT LIKE '%NON%'");
+        });
+      }
+
+      // Select kolom yang sama seperti proses() agar computeGrandTotalFromRows bisa hitung akurat
+      $selectCols = [
+        'k.NIDN as NIDN', 'k.Nama as Nama', 'k.Jenis as Jenis', 'k.Bank as Bank',
+        'k.Jabatan12 as Jabatan12', 'k.Aktif as Aktif',
+      ];
+      for ($i = 1; $i <= 12; $i++) {
+        $selectCols[] = 'k.Gol' . $i;
+        $selectCols[] = 'k.Jabatan' . $i;
+        $selectCols[] = 'k.TPD' . $i;
+        $selectCols[] = 'k.TKGB' . $i;
+        $selectCols[] = 'k.Gaji' . $i;
+        $selectCols[] = 'k.No_sp2d_' . $i;
+        $selectCols[] = 'k.Tgl_sp2d_' . $i;
+      }
+
+      try {
+        $rows = $q->get($selectCols);
+        if ($rows->isEmpty()) continue;
+
+        $totalNominal = $this->computeGrandTotalFromRows($rows->all(), $tarifMapBackfill);
+        if ($totalNominal > 0) {
+          $rekap->total_nominal = $totalNominal;
+          DB::table('u_rekap_kekurangan')->where('id', $rekap->id)->update(['total_nominal' => $totalNominal]);
+        }
+      } catch (\Throwable $e) { /* silent */ }
+    }
+
+    return view('admin.kekurangan-bayar', [
+      'versi' => $versi,
+      'detailKurang' => $detailKurang,
+      'detailLebih'  => $detailLebih,
+      'rekapKurang'  => $rekapKurang,
+      'rekapLebih'   => $rekapLebih,
+      'bankList' => DB::table('b_bank')->select('nama_bank')->whereNotNull('nama_bank')->where('nama_bank','!=','')->distinct()->orderBy('nama_bank')->pluck('nama_bank'),
+    ]);
+  }
+
+  public function proses(Request $request)
+  {
+    $request->validate([
+      'periode' => 'required',
+      'tipe' => 'required',
+      'jenis' => 'required',
+      'bank' => 'required',
+    ]);
+
+    $versi = session('tahun');
+    if (!$versi) {
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Tahun versi belum dipilih pada sesi.');
+    }
+
+    $tipe = $request->input('tipe', 'Semua');
+    $jenis = $request->input('jenis', 'Semua');
+    $bank = $request->input('bank', 'Semua');
+
+    @set_time_limit(0);
+    @ini_set('memory_limit', '-1');
+    DB::disableQueryLog();
+
+    try {
+      $tarifMap = $this->loadTarifPajakMap();
+    } catch (\Throwable $e) {
+      $alias = ErrorAlias::fromThrowable($e, 'ADM-KEKURANGAN-PAJAK');
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal memuat tarif pajak. ' . $alias['message']);
+    }
+
+    try {
+      $rowsPayload = $this->computeKekuranganPayload((string) $versi, $tipe, $jenis, $bank, $tarifMap, true);
+      if (empty($rowsPayload)) {
+        return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Tidak ada data baru untuk diproses (mungkin sudah pernah diproses / total pembayaran 0 / belum ada SP2D).');
+      }
+
+      $batch = [];
+      $batchSize = 300;
+      foreach ($rowsPayload as $obj) {
+        $arr = (array) $obj;
+        $allowed = [
+          'id','nidn','nama','total_gaji','total_pembayaran',
+          'k_tpd1','k_tpd2','k_tpd3','k_tpd4','k_tpd5','k_tpd6','k_tpd7','k_tpd8','k_tpd9','k_tpd10','k_tpd11','k_tpd12',
+          'k_tkgb1','k_tkgb2','k_tkgb3','k_tkgb4','k_tkgb5','k_tkgb6','k_tkgb7','k_tkgb8','k_tkgb9','k_tkgb10','k_tkgb11','k_tkgb12',
+          'jml_tpd','jml_tkgb','pajak','nilai_pjk_tpd','nilai_pjk_tkgb','bersih',
+          'sp2d_tpd','sp2d_tkgb','tgl_tpd','tgl_tkgb','cek_validasi_tpd','cek_validasi_tkgb','tahun'
+        ];
+        $arr = array_intersect_key($arr, array_flip($allowed));
+        $batch[] = $arr;
+        if (count($batch) >= $batchSize) {
+          DB::table('t_kekurangan')->insert($batch);
+          $batch = [];
+        }
+      }
+      if (!empty($batch)) {
+        DB::table('t_kekurangan')->insert($batch);
+      }
+
+      $generatedCount = DB::table('t_kekurangan')->where('tahun', $versi)->count();
+      if ($generatedCount <= 0) {
+        return redirect()->route('admin.kekurangan-bayar')->with('error', 'Tidak ada data yang dapat diproses. Pastikan sudah ada No SP2D dan Tgl SP2D terisi di s_transaksi_2.');
+      }
+    } catch (\Throwable $e) {
+      $alias = ErrorAlias::fromThrowable($e, 'ADM-KEKURANGAN-PROSES');
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal menghitung kekurangan. ' . $alias['message']);
+    }
+
+    $jenisLabel = strtolower(str_replace(' ', '_', $jenis === 'Semua' ? 'semua' : $jenis));
+    $tipeLabel = strtolower($tipe === 'Semua' ? 'semua' : $tipe);
+    $bankLabel = strtolower($bank === 'Semua' ? 'semua' : $bank);
+
+    $rekapCreated = 0;
+    try {
+      $base = DB::table('t_kekurangan as ku')
+        ->join('s_transaksi_2 as k', function ($join) {
+          $join->on('ku.nidn', '=', 'k.NIDN');
+        })
+        ->where('ku.tahun', $versi)
+        ->where('k.Tahun_Versi', $versi);
+
+      if ($tipe !== 'Semua') {
+        if ($tipe === 'TPD') { $base->whereRaw('(ku.jml_tpd + 0) <> 0'); } 
+        elseif ($tipe === 'TKGB') { $base->whereRaw('(ku.jml_tkgb + 0) <> 0'); }
+      }
+      if ($jenis !== 'Semua') {
+        if (strtoupper($jenis) === 'PNS') {
+          $base->where(function ($q) {
+            $q->whereRaw("UPPER(k.Jenis) LIKE '%PNS%'")
+              ->whereRaw("UPPER(k.Jenis) NOT LIKE '%NON%'");
+          });
+        } elseif (strtoupper($jenis) === 'NON PNS') {
+          $base->whereRaw("UPPER(k.Jenis) LIKE '%NON%'");
+        } else {
+          $base->whereRaw("TRIM(k.Jenis) = ?", [trim($jenis)]);
+        }
+      }
+      if ($bank !== 'Semua') { $base->whereRaw('TRIM(k.Bank) = ?', [trim($bank)]); }
+
+      $select = [
+        'k.NIDN as NIDN', 'k.Nama as Nama', 'k.Jenis as Jenis', 'k.Bank as Bank',
+        'k.Jabatan12 as Jabatan12', 'k.Aktif as Aktif', 'ku.bersih as delta_bersih',
+      ];
+      for ($i = 1; $i <= 12; $i++) {
+        $select[] = 'k.Gol' . $i; $select[] = 'k.Jabatan' . $i;
+        $select[] = 'k.TPD' . $i; $select[] = 'k.TKGB' . $i; $select[] = 'k.Gaji' . $i;
+        $select[] = 'k.No_sp2d_' . $i; $select[] = 'k.Tgl_sp2d_' . $i;
+      }
+
+      $rowsKurang = (clone $base)->whereRaw('(ku.bersih + 0) < 0')->get($select);
+      if (!$rowsKurang->isEmpty()) {
+        $this->ensurePublicFolder('rekap_kekurangan');
+        $excelRelPath = 'rekap_kekurangan/rekap_kekurangan_jan_des_' . $jenisLabel . '_' . $tipeLabel . '_' . $bankLabel . '_' . $versi . '.xls';
+        $this->putPublicFile($excelRelPath, $this->toExcelHtmlLikeTable($rowsKurang->all(), $tarifMap));
+
+        // Hitung total_nominal = Grand Total dari Excel (sum abs(kesimpulan) per dosen)
+        $totalNominalKurang = $this->computeGrandTotalFromRows($rowsKurang->all(), $tarifMap);
+
+        $this->insertRekapRow([
+          'periode' => 'Kurang Jan-Des ' . $versi, 'pegawai' => (string) $rowsKurang->count(),
+          'tipe' => $tipe, 'bank' => $bank, 'excel' => $excelRelPath, 'pdf' => null,
+          'total_nominal' => $totalNominalKurang,
+          'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $rekapCreated++;
+      }
+
+      $rowsLebih = (clone $base)->whereRaw('(ku.bersih + 0) > 0')->get($select);
+      if (!$rowsLebih->isEmpty()) {
+        $this->ensurePublicFolder('rekap_kelebihan');
+        $excelRelPath = 'rekap_kelebihan/rekap_kelebihan_jan_des_' . $jenisLabel . '_' . $tipeLabel . '_' . $bankLabel . '_' . $versi . '.xls';
+        $this->putPublicFile($excelRelPath, $this->toExcelHtmlLikeTable($rowsLebih->all(), $tarifMap));
+
+        // Hitung total_nominal = Grand Total dari Excel (sum abs(kesimpulan) per dosen)
+        $totalNominalLebih = $this->computeGrandTotalFromRows($rowsLebih->all(), $tarifMap);
+
+        $this->insertRekapRow([
+          'periode' => 'Lebih Jan-Des ' . $versi, 'pegawai' => (string) $rowsLebih->count(),
+          'tipe' => $tipe, 'bank' => $bank, 'excel' => $excelRelPath, 'pdf' => null,
+          'total_nominal' => $totalNominalLebih,
+          'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $rekapCreated++;
+      }
+    } catch (\Throwable $e) {
+      return redirect()->route('admin.kekurangan-bayar')->with('success', 'Proses hitung berhasil, namun gagal membuat file rekap.');
+    }
+
+    if ($rekapCreated <= 0) {
+      return redirect()->route('admin.kekurangan-bayar')->with('success', 'Proses hitung berhasil. Tidak ada data kurang/lebih untuk direkap sesuai filter.');
+    }
+    return redirect()->route('admin.kekurangan-bayar')->with('success', 'Proses hitung & rekap berhasil.');
+  }
+
+  public function rekap()
+  {
+    $versi = session('tahun');
+    if (!$versi) { return redirect()->route('admin.kekurangan-bayar')->with('error', 'Tahun belum dipilih.'); }
+
+    $rekapKurang = DB::table('u_rekap_kekurangan')->whereRaw('RIGHT(periode, 4) = ?', [$versi])
+      ->where(function ($q) { $q->where('excel', 'like', 'rekap_kekurangan/%')->orWhere('periode', 'like', 'Kurang%'); })
+      ->orderByDesc('created_at')->get();
+
+    $rekapLebih = DB::table('u_rekap_kekurangan')->whereRaw('RIGHT(periode, 4) = ?', [$versi])
+      ->where(function ($q) { $q->where('excel', 'like', 'rekap_kelebihan/%')->orWhere('periode', 'like', 'Lebih%'); })
+      ->orderByDesc('created_at')->get();
+
+    return view('admin.kekurangan-bayar-rekap', ['versi' => $versi, 'rekapKurang' => $rekapKurang, 'rekapLebih' => $rekapLebih]);
+  }
+
+  public function prosesAksiSp2d(Request $request)
+  {
+    $request->validate([
+      'rekap_id' => 'required|integer',
+      'no_sp2d' => 'required|string|max:100',
+      'tanggal_sp2d' => 'required|date',
+    ]);
+
+    $rekapId = (int) $request->input('rekap_id');
+    $noSp2d = trim($request->input('no_sp2d'));
+    $tanggalSp2d = $request->input('tanggal_sp2d');
+    $versi = session('tahun');
+
+    if (!$versi) {
+      return response()->json(['success' => false, 'message' => 'Tahun versi belum dipilih pada sesi.'], 422);
+    }
+
+    // Cek rekap exists & belum pernah diproses
+    $rekap = DB::table('u_rekap_kekurangan')->where('id', $rekapId)->first();
+    if (!$rekap) {
+      return response()->json(['success' => false, 'message' => 'Data rekap tidak ditemukan.'], 404);
+    }
+    if (!empty($rekap->sp2d)) {
+      return response()->json(['success' => false, 'message' => 'Rekap ini sudah pernah diproses SP2D.'], 422);
+    }
+
+    // Deteksi jenis rekap (kurang/lebih) dari periode
+    $periode = strtolower(trim($rekap->periode ?? ''));
+    $isKurang = (strpos($periode, 'kurang') !== false);
+    $isLebih  = (strpos($periode, 'lebih') !== false);
+
+    if (!$isKurang && !$isLebih) {
+      return response()->json(['success' => false, 'message' => 'Tidak dapat menentukan jenis rekap (kurang/lebih).'], 422);
+    }
+
+    $monthNames = [
+      1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+      5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+      9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+    ];
+
+    @set_time_limit(0);
+    @ini_set('memory_limit', '-1');
+    DB::disableQueryLog();
+
+    try {
+      $tarifMap = $this->loadTarifPajakMap();
+    } catch (\Throwable $e) {
+      return response()->json(['success' => false, 'message' => 'Gagal memuat tarif pajak.'], 500);
+    }
+
+    DB::beginTransaction();
+    try {
+      // Update SP2D di rekap
+      DB::table('u_rekap_kekurangan')->where('id', $rekapId)->update([
+        'sp2d' => $noSp2d,
+        'tgl_sp2d' => $tanggalSp2d,
+        'updated_at' => now(),
+      ]);
+
+      // Query semua dosen dari t_kekurangan yang sesuai
+      $bersihCondition = $isKurang ? '(ku.bersih + 0) < 0' : '(ku.bersih + 0) > 0';
+      $dosenRows = DB::table('t_kekurangan as ku')
+        ->join('s_transaksi_2 as k', function ($join) {
+          $join->on('ku.nidn', '=', 'k.NIDN');
+        })
+        ->where('ku.tahun', $versi)
+        ->where('k.Tahun_Versi', $versi)
+        ->whereRaw($bersihCondition)
+        ->select(
+          'ku.nidn', 'k.Jenis as Jenis', 'k.Jabatan12 as Jabatan12',
+          'ku.k_tpd1', 'ku.k_tpd2', 'ku.k_tpd3', 'ku.k_tpd4', 'ku.k_tpd5', 'ku.k_tpd6',
+          'ku.k_tpd7', 'ku.k_tpd8', 'ku.k_tpd9', 'ku.k_tpd10', 'ku.k_tpd11', 'ku.k_tpd12',
+          'ku.k_tkgb1', 'ku.k_tkgb2', 'ku.k_tkgb3', 'ku.k_tkgb4', 'ku.k_tkgb5', 'ku.k_tkgb6',
+          'ku.k_tkgb7', 'ku.k_tkgb8', 'ku.k_tkgb9', 'ku.k_tkgb10', 'ku.k_tkgb11', 'ku.k_tkgb12',
+          'k.Gol1', 'k.Gol2', 'k.Gol3', 'k.Gol4', 'k.Gol5', 'k.Gol6',
+          'k.Gol7', 'k.Gol8', 'k.Gol9', 'k.Gol10', 'k.Gol11', 'k.Gol12',
+          'k.Jabatan1', 'k.Jabatan2', 'k.Jabatan3', 'k.Jabatan4', 'k.Jabatan5', 'k.Jabatan6',
+          'k.Jabatan7', 'k.Jabatan8', 'k.Jabatan9', 'k.Jabatan10', 'k.Jabatan11', 'k.Jabatan12 as Jabatan12Monthly',
+          'k.No_sp2d_1', 'k.No_sp2d_2', 'k.No_sp2d_3', 'k.No_sp2d_4', 'k.No_sp2d_5', 'k.No_sp2d_6',
+          'k.No_sp2d_7', 'k.No_sp2d_8', 'k.No_sp2d_9', 'k.No_sp2d_10', 'k.No_sp2d_11', 'k.No_sp2d_12',
+          'k.Tgl_sp2d_1', 'k.Tgl_sp2d_2', 'k.Tgl_sp2d_3', 'k.Tgl_sp2d_4', 'k.Tgl_sp2d_5', 'k.Tgl_sp2d_6',
+          'k.Tgl_sp2d_7', 'k.Tgl_sp2d_8', 'k.Tgl_sp2d_9', 'k.Tgl_sp2d_10', 'k.Tgl_sp2d_11', 'k.Tgl_sp2d_12'
+        )
+        ->get();
+
+      // Filter berdasarkan tipe dan bank dari rekap jika bukan 'Semua'
+      $rekapTipe = trim($rekap->tipe ?? 'Semua');
+      $rekapBank = trim($rekap->bank ?? 'Semua');
+
+      // Pre-load existing NIDN+bulan combos from t_uraian_pembayaran to prevent duplicates
+      $existingUraian = [];
+      try {
+        $existingRows = DB::table('t_uraian_pembayaran')
+          ->where('tahun', (string) $versi)
+          ->select('nidn', 'bulan')
+          ->get();
+        foreach ($existingRows as $er) {
+          $existingUraian[trim($er->nidn) . '-' . (int) $er->bulan] = true;
+        }
+      } catch (\Throwable $e) { /* table might not exist yet */ }
+
+      $insertBatch = [];
+      $batchSize = 500;
+      $totalGenerated = 0;
+      $totalSkipped = 0;
+
+      foreach ($dosenRows as $dosen) {
+        $nidn = trim($dosen->nidn ?? '');
+        if ($nidn === '') continue;
+
+        $jenisRow = trim($dosen->Jenis ?? '');
+        $jenisKey = $jenisRow;
+
+        for ($i = 1; $i <= 12; $i++) {
+          $selisihTpd = (float) ($dosen->{'k_tpd' . $i} ?? 0);
+          $selisihTkgb = (float) ($dosen->{'k_tkgb' . $i} ?? 0);
+          $selisihTotal = $selisihTpd + $selisihTkgb;
+
+          // Skip bulan tanpa selisih
+          if (abs($selisihTotal) < 0.01) continue;
+
+          // Hanya proses jika SP2D bulan tersebut ada
+          $noSp2dBulan = trim((string) ($dosen->{'No_sp2d_' . $i} ?? ''));
+          $tglSp2dBulan = trim((string) ($dosen->{'Tgl_sp2d_' . $i} ?? ''));
+          if ($noSp2dBulan === '' || $tglSp2dBulan === '') continue;
+
+          // Skip jika NIDN+bulan ini sudah pernah diproses (cegah duplikat)
+          $dupeKey = $nidn . '-' . $i;
+          if (isset($existingUraian[$dupeKey])) {
+            $totalSkipped++;
+            continue;
+          }
+
+          // Hitung pajak
+          $gol = trim((string) ($dosen->{'Gol' . $i} ?? ''));
+          $jabatan = (string) ($dosen->{'Jabatan' . $i} ?? ($dosen->Jabatan12 ?? ''));
+          $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
+          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+
+          $nominalKotor = abs($selisihTpd) + abs($selisihTkgb);
+          $pajakTpd = abs($selisihTpd) * $tarif;
+          $pajakTkgb = $kenaTKGB ? (abs($selisihTkgb) * $tarif) : 0.0;
+          $totalPajak = $pajakTpd + $pajakTkgb;
+          $totalBersih = $nominalKotor - $totalPajak;
+
+          // Generate uraian (tanpa nama bulan karena sudah ada di kolom bulan)
+          $uraian = $isKurang
+            ? 'Pembayaran kekurangan'
+            : 'Potongan kelebihan bayar';
+
+          $insertBatch[] = [
+            'rekap_id' => $rekapId,
+            'nidn' => $nidn,
+            'tahun' => (string) $versi,
+            'bulan' => $i,
+            'uraian_pembayaran' => $uraian,
+            'nominal' => round($nominalKotor, 2),
+            'pajak' => round($totalPajak, 2),
+            'bersih' => round($totalBersih, 2),
+            'nomor' => $noSp2d,
+            'tanggal' => $tanggalSp2d,
+            'created_at' => now(),
+            'updated_at' => now(),
+          ];
+          $totalGenerated++;
+
+          if (count($insertBatch) >= $batchSize) {
+            DB::table('t_uraian_pembayaran')->insert($insertBatch);
+            $insertBatch = [];
+          }
+        }
+      }
+
+      if (!empty($insertBatch)) {
+        DB::table('t_uraian_pembayaran')->insert($insertBatch);
+      }
+
+      DB::commit();
+
+      $skipMsg = $totalSkipped > 0 ? " ({$totalSkipped} baris di-skip karena sudah pernah diproses.)" : '';
+      return response()->json([
+        'success' => true,
+        'message' => "Berhasil memproses SP2D. {$totalGenerated} baris uraian pembayaran di-generate.{$skipMsg}",
+      ]);
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('prosesAksiSp2d failed', [
+        'rekap_id' => $rekapId,
+        'message' => $e->getMessage(),
+        'trace' => $e->getTraceAsString(),
+      ]);
+      return response()->json(['success' => false, 'message' => 'Gagal memproses SP2D: ' . $e->getMessage()], 500);
+    }
+  }
+
+  public function destroyTahun(Request $request)
+  {
+    $versi = session('tahun');
+    DB::table('t_kekurangan')->where('tahun', $versi)->delete();
+    DB::table('u_rekap_kekurangan')->whereRaw('RIGHT(periode, 4) = ?', [$versi])->delete();
+    return redirect()->route('admin.kekurangan-bayar')->with('success', "Semua data pada tahun {$versi} berhasil dihapus.");
+  }
+
+  public function destroyKurang(Request $request)
+  {
+    $versi = session('tahun');
+    DB::table('t_kekurangan')->where('tahun', $versi)->whereRaw('(bersih + 0) < 0')->delete();
+    return redirect()->route('admin.kekurangan-bayar')->with('success', "Data 'Kurang Bayar' tahun {$versi} berhasil dihapus.");
+  }
+
+  public function destroyLebih(Request $request)
+  {
+    $versi = session('tahun');
+    DB::table('t_kekurangan')->where('tahun', $versi)->whereRaw('(bersih + 0) > 0')->delete();
+    return redirect()->route('admin.kekurangan-bayar')->with('success', "Data 'Lebih Bayar' tahun {$versi} berhasil dihapus.");
+  }
+
+  public function destroyRekapSelected(Request $request)
+  {
+    $versi = session('tahun');
+    $ids = array_values(array_filter($request->input('ids', []), function ($v) { return is_numeric($v); }));
+
+    if (empty($ids)) return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Tidak ada rekap dipilih.');
+
+    $rows = DB::table('u_rekap_kekurangan')->whereIn('id', $ids)->whereRaw('RIGHT(periode, 4) = ?', [$versi])->get(['id', 'excel', 'pdf']);
+    if ($rows->isEmpty()) return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Rekap tidak ditemukan.');
+
+    DB::beginTransaction();
+    try {
+      foreach ($rows as $r) {
+        foreach (['excel', 'pdf'] as $key) {
+          if (!empty($r->$key)) {
+            $rel = str_replace('\\', '/', trim($r->$key));
+            if (strpos($rel, 'storage/') === 0) $rel = substr($rel, 8);
+            Storage::disk('public')->delete($rel);
+          }
+        }
+      }
+      $deleted = DB::table('u_rekap_kekurangan')->whereIn('id', $rows->pluck('id')->all())->whereRaw('RIGHT(periode, 4) = ?', [$versi])->delete();
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal menghapus rekap.');
+    }
+    return redirect()->route('admin.kekurangan-bayar')->with('success', "Berhasil menghapus {$deleted} rekap.");
+  }
+}

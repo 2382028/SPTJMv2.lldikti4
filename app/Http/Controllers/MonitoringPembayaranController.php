@@ -283,16 +283,19 @@ class MonitoringPembayaranController extends Controller
       $resolvedRows = DB::table('t_uraian_pembayaran')
         ->where('nidn', $nidn)
         ->where('tahun', $selectedYear)
-        ->select('bulan', 'nomor', 'tanggal')
+        ->select('bulan', 'nomor', 'tanggal', 'nominal')
         ->orderBy('id', 'asc')
         ->get();
       foreach ($resolvedRows as $r) {
-        if (!isset($resolvedMonths[(int) $r->bulan])) {
-          $resolvedMonths[(int) $r->bulan] = [
+        $m = (int) $r->bulan;
+        if (!isset($resolvedMonths[$m])) {
+          $resolvedMonths[$m] = [
             'nomor' => $r->nomor,
-            'tanggal' => $r->tanggal
+            'tanggal' => $r->tanggal,
+            'nominal' => 0
           ];
         }
+        $resolvedMonths[$m]['nominal'] += (float) $r->nominal;
       }
     } catch (\Throwable $e) { /* table might not exist yet */ }
 
@@ -326,10 +329,24 @@ class MonitoringPembayaranController extends Controller
       // Matches SelisihBayar logic: compares DB TPD+TKGB vs actual Gaji
       $selisihBulan = ($hasData && $hasSp2d) ? ($kotor - $gaji) : 0;
 
-      // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan → selisih = 0, status = selesai
+      // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan, kurangi selisih dengan jumlah yang dibayar (cicilan)
       $isResolved = isset($resolvedMonths[$bulanNum]);
       if ($isResolved && $hasSp2d) {
-        $selisihBulan = 0;
+        $paidNet = $resolvedMonths[$bulanNum]['nominal'] ?? 0;
+        $tarif = $kotor > 0 ? ($pajak / $kotor) : 0;
+        
+        $paidGross = $paidNet;
+        if ($tarif < 1 && $tarif >= 0) {
+            $paidGross = $paidNet / (1 - $tarif);
+        }
+        
+        if ($selisihBulan > 0) { // Lebih Bayar
+            $selisihBulan -= $paidGross;
+            if ($selisihBulan < 0) $selisihBulan = 0;
+        } elseif ($selisihBulan < 0) { // Kurang Bayar
+            $selisihBulan += $paidGross;
+            if ($selisihBulan > 0) $selisihBulan = 0;
+        }
       }
 
       $selisihBulanan[] = (float) $selisihBulan;
@@ -549,16 +566,19 @@ class MonitoringPembayaranController extends Controller
       $resolvedRows = DB::table('t_uraian_pembayaran')
         ->where('nidn', $nidn)
         ->where('tahun', $selectedYear)
-        ->select('bulan', 'nomor', 'tanggal')
+        ->select('bulan', 'nomor', 'tanggal', 'nominal')
         ->orderBy('id', 'asc')
         ->get();
       foreach ($resolvedRows as $r) {
-        if (!isset($resolvedMonths[(int) $r->bulan])) {
-          $resolvedMonths[(int) $r->bulan] = [
+        $m = (int) $r->bulan;
+        if (!isset($resolvedMonths[$m])) {
+          $resolvedMonths[$m] = [
             'nomor' => $r->nomor,
-            'tanggal' => $r->tanggal
+            'tanggal' => $r->tanggal,
+            'nominal' => 0
           ];
         }
+        $resolvedMonths[$m]['nominal'] += (float) $r->nominal;
       }
     } catch (\Throwable $e) { /* table might not exist yet */ }
 
@@ -591,10 +611,24 @@ class MonitoringPembayaranController extends Controller
       // Selisih = expected gross (kotor) - actual paid (gaji)
       $selisihBulan = ($hasData && $hasSp2d) ? ($kotor - $gaji) : 0;
 
-      // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan → selisih = 0, status = selesai
+      // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan, kurangi selisih dengan jumlah yang dibayar (cicilan)
       $isResolved = isset($resolvedMonths[$bulanNum]);
       if ($isResolved && $hasSp2d) {
-        $selisihBulan = 0;
+        $paidNet = $resolvedMonths[$bulanNum]['nominal'] ?? 0;
+        $tarif = $kotor > 0 ? ($pajak / $kotor) : 0;
+        
+        $paidGross = $paidNet;
+        if ($tarif < 1 && $tarif >= 0) {
+            $paidGross = $paidNet / (1 - $tarif);
+        }
+        
+        if ($selisihBulan > 0) { // Lebih Bayar
+            $selisihBulan -= $paidGross;
+            if ($selisihBulan < 0) $selisihBulan = 0;
+        } elseif ($selisihBulan < 0) { // Kurang Bayar
+            $selisihBulan += $paidGross;
+            if ($selisihBulan > 0) $selisihBulan = 0;
+        }
       }
 
       $selisihBulanan[] = (float) $selisihBulan;

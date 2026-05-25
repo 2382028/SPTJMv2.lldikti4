@@ -219,9 +219,20 @@
                                                 <td class="{{ $clsKesimpulan }}">{{ $formatInt($kesimpulan) }}</td>
                                                 <td class="text-center align-middle">
                                                     @if($kesimpulan != 0)
+                                                    @php
+                                                        $availMonths = [];
+                                                        for($m=1; $m<=12; $m++) {
+                                                            $dbK = ($row->{'db_tpd'.$m} ?? 0) + ($row->{'db_tkgb'.$m} ?? 0);
+                                                            $akK = ($row->{'exp_tpd'.$m} ?? 0) + ($row->{'exp_tkgb'.$m} ?? 0);
+                                                            // Kurang bayar: aktual > db
+                                                            if($akK > $dbK) {
+                                                                $availMonths[] = $m;
+                                                            }
+                                                        }
+                                                    @endphp
                                                     <button type="button" class="btn btn-sm btn-primary btn-aksi-sp2d-individu py-0 px-2"
-                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="kurang" title="Input SP2D NIDN: {{ $row->NIDN }}" style="font-size:11px;">
-                                                        <i class="bx bx-edit-alt"></i> SP2D
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="kurang" data-bulan="{{ json_encode($availMonths) }}" title="Input Pembayaran NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit-alt"></i> Pembayaran
                                                     </button>
                                                     @else
                                                     -
@@ -354,9 +365,25 @@
                                                 <td class="{{ $clsKesimpulan }}">{{ $formatInt($kesimpulan) }}</td>
                                                 <td class="text-center align-middle">
                                                     @if($kesimpulan != 0)
+                                                    @php
+                                                        $availMonths = [];
+                                                        for($m=1; $m<=12; $m++) {
+                                                            $dbK = ($row->{'db_tpd'.$m} ?? 0) + ($row->{'db_tkgb'.$m} ?? 0);
+                                                            $akK = ($row->{'exp_tpd'.$m} ?? 0) + ($row->{'exp_tkgb'.$m} ?? 0);
+                                                            // Lebih bayar: db > aktual
+                                                            if($dbK > $akK) {
+                                                                $dbB = $row->{'db_bersih'.$m} ?? 0;
+                                                                $akB = $row->{'akt_bersih'.$m} ?? 0;
+                                                                $selisihBersih = $dbB - $akB;
+                                                                // Use bersih difference if positive, else fallback to kotor difference
+                                                                $nominal = $selisihBersih > 0 ? $selisihBersih : ($dbK - $akK);
+                                                                $availMonths[] = ['bulan' => $m, 'nominal' => $nominal];
+                                                            }
+                                                        }
+                                                    @endphp
                                                     <button type="button" class="btn btn-sm btn-primary btn-aksi-sp2d-individu py-0 px-2"
-                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="lebih" title="Input NTPN NIDN: {{ $row->NIDN }}" style="font-size:11px;">
-                                                        <i class="bx bx-edit-alt"></i> NTPN
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" data-jenis="lebih" data-bulan="{{ json_encode($availMonths) }}" title="Input Pembayaran NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit-alt"></i> Pembayaran
                                                     </button>
                                                     @else
                                                     -
@@ -523,12 +550,12 @@
     </div>
 </div>
 
-{{-- Modal Input SP2D Individu --}}
+{{-- Modal Input SP2D Individu (Kurang Bayar) --}}
 <div class="modal fade" id="modalSp2dIndividu" tabindex="-1" aria-labelledby="modalSp2dIndividuLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="modalSp2dIndividuLabel">Input No SP2D Individu</h5>
+                <h5 class="modal-title" id="modalSp2dIndividuLabel">Input SP2D Individu (Kurang Bayar)</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -541,7 +568,8 @@
                     <span id="sp2dIndividuWarningText">Data SP2D ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.</span>
                 </div>
                 <input type="hidden" id="sp2dIndividuNidn">
-                <input type="hidden" id="sp2dIndividuJenis">
+                <input type="hidden" id="sp2dIndividuJenis" value="kurang">
+                
                 <div class="mb-3">
                     <label for="sp2dIndividuUraian" class="form-label">Uraian Pembayaran <span class="text-muted">(Opsional)</span></label>
                     <input type="text" class="form-control" id="sp2dIndividuUraian" placeholder="Cth: Pembayaran kekurangan bayar tahun 2026">
@@ -559,6 +587,69 @@
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
                 <button type="button" class="btn btn-primary" id="btnSubmitSp2dIndividu">
                     <span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Modal Input NTPN Individu (Lebih Bayar) --}}
+<div class="modal fade" id="modalNtpnIndividu" tabindex="-1" aria-labelledby="modalNtpnIndividuLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalNtpnIndividuLabel">Input Data Pembayaran (Lebih Bayar)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <span class="text-muted small">NIDN - Nama:</span>
+                    <strong id="ntpnIndividuNidnLabel" class="d-block"></strong>
+                </div>
+                <div class="alert alert-warning small py-2 mb-3">
+                    <i class="bx bx-info-circle me-1"></i>
+                    <span>Data ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.</span>
+                </div>
+                <input type="hidden" id="ntpnIndividuNidn">
+                <input type="hidden" id="ntpnIndividuJenis" value="lebih">
+                <input type="hidden" id="ntpnIndividuJenisTransaksi" value="">
+
+                <div class="mb-3" id="wrapperNtpnIndividuNomor">
+                    <label id="lblNtpnIndividuNomor" for="ntpnIndividuNomor" class="form-label">No Bukti <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="ntpnIndividuNomor" placeholder="Masukkan Nomor">
+                </div>
+                
+                <div class="mb-3">
+                    <label id="lblNtpnIndividuBulan" for="ntpnIndividuBulan" class="form-label">Bulan <span class="text-danger">*</span></label>
+                    <select class="form-select" id="ntpnIndividuBulan" required>
+                        <option value="">-- Pilih Bulan --</option>
+                    </select>
+                    <small class="text-muted">Bulan yang muncul hanya bulan yang lebih saja.</small>
+                </div>
+
+                <div class="mb-3">
+                    <label id="lblNtpnIndividuNominal" for="ntpnIndividuNominal" class="form-label">Dibayar Berapa (Nominal Cicilan) <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <span class="input-group-text">Rp</span>
+                        <input type="text" class="form-control" id="ntpnIndividuNominal" placeholder="Cth: 1500000" required>
+                    </div>
+                    <small class="text-muted">Masukkan angka saja. Bisa untuk pembayaran penuh atau cicilan.</small>
+                </div>
+
+                <div class="mb-3">
+                    <label id="lblNtpnIndividuTanggal" for="ntpnIndividuTanggal" class="form-label">Tanggal Bukti <span class="text-danger">*</span></label>
+                    <input type="date" class="form-control" id="ntpnIndividuTanggal" required>
+                </div>
+
+                <div class="mb-3">
+                    <label id="lblNtpnIndividuUraian" for="ntpnIndividuUraian" class="form-label">Catatan Khusus (Uraian Pembayaran) <span class="text-muted">(Opsional)</span></label>
+                    <input type="text" class="form-control" id="ntpnIndividuUraian" placeholder="Cth: Pembayaran kelebihan bayar">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" id="btnSubmitNtpnIndividu">
+                    <span class="tf-icons bx bx-send"></span>&nbsp; Proses
                 </button>
             </div>
         </div>
@@ -904,50 +995,156 @@
         const modalSp2dIndividuEl = document.getElementById('modalSp2dIndividu');
         const sp2dIndividuModal = modalSp2dIndividuEl ? new bootstrap.Modal(modalSp2dIndividuEl) : null;
 
+        const modalNtpnIndividuEl = document.getElementById('modalNtpnIndividu');
+        const ntpnIndividuModal = modalNtpnIndividuEl ? new bootstrap.Modal(modalNtpnIndividuEl) : null;
+
         document.querySelectorAll('.btn-aksi-sp2d-individu').forEach(btn => {
-            btn.addEventListener('click', function () {
+            btn.addEventListener('click', async function () {
                 const nidn = this.dataset.nidn;
                 const nama = this.dataset.nama;
                 const jenis = this.dataset.jenis;
                 const isLebih = (jenis === 'lebih');
-                const labelText = isLebih ? 'NTPN' : 'SP2D';
 
-                document.getElementById('sp2dIndividuNidn').value = nidn;
-                document.getElementById('sp2dIndividuJenis').value = jenis;
-                document.getElementById('sp2dIndividuNidnLabel').textContent = nidn + ' - ' + nama + ' (' + jenis.toUpperCase() + ')';
-                document.getElementById('sp2dIndividuUraian').value = '';
-                document.getElementById('sp2dIndividuNomor').value = '';
-                document.getElementById('sp2dIndividuTanggal').value = getTodayDate();
+                if (isLebih) {
+                    let trxType = '';
+                    if (alertApi && typeof alertApi.close === 'function') {
+                        await alertApi.close(); 
+                    }
+                    if (window.Swal) {
+                        const result = await window.Swal.fire({
+                            title: 'Pilih Jenis Transaksi',
+                            text: 'Apakah transaksi ini berupa Pemotongan atau Pengembalian?',
+                            icon: 'question',
+                            showCancelButton: true,
+                            showDenyButton: true,
+                            confirmButtonText: 'Pemotongan',
+                            denyButtonText: 'Pengembalian',
+                            cancelButtonText: 'Batal',
+                            customClass: {
+                                confirmButton: 'btn btn-primary',
+                                denyButton: 'btn btn-info ms-2',
+                                cancelButton: 'btn btn-outline-secondary ms-2',
+                            },
+                            buttonsStyling: false
+                        });
 
-                document.getElementById('modalSp2dIndividuLabel').textContent = `Input No ${labelText} Individu`;
-                document.getElementById('lblSp2dIndividuNomor').innerHTML = `No ${labelText} <span class="text-danger">*</span>`;
-                document.getElementById('sp2dIndividuNomor').placeholder = `Masukkan No ${labelText}`;
-                document.getElementById('lblSp2dIndividuTanggal').innerHTML = `Tanggal ${labelText} <span class="text-danger">*</span>`;
-                document.getElementById('sp2dIndividuWarningText').innerHTML = `Data ${labelText} ini akan disimpan untuk dosen dengan NIDN di atas secara spesifik.`;
-                document.getElementById('btnSubmitSp2dIndividu').innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses ${labelText}`;
-                document.getElementById('btnSubmitSp2dIndividu').dataset.labelText = labelText;
+                        if (result.isConfirmed) {
+                            trxType = 'Pemotongan';
+                        } else if (result.isDenied) {
+                            trxType = 'Pengembalian';
+                        } else {
+                            return;
+                        }
+                    } else {
+                        const isPemotongan = confirm("Klik OK untuk Pemotongan, Batal untuk Pengembalian.");
+                        trxType = isPemotongan ? 'Pemotongan' : 'Pengembalian';
+                    }
 
-                if (sp2dIndividuModal) sp2dIndividuModal.show();
+                    document.getElementById('ntpnIndividuJenisTransaksi').value = trxType;
+
+                    // Set labels dynamically based on trxType
+                    if (trxType === 'Pemotongan') {
+                        document.getElementById('wrapperNtpnIndividuNomor').style.display = 'none';
+                        document.getElementById('lblNtpnIndividuBulan').innerHTML = 'Bulan <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuNominal').innerHTML = 'Jumlah Potongan <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuTanggal').innerHTML = 'Tgl <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuUraian').innerHTML = 'Uraian Pembayaran <span class="text-muted">(Opsional)</span>';
+                    } else {
+                        document.getElementById('wrapperNtpnIndividuNomor').style.display = 'block';
+                        document.getElementById('lblNtpnIndividuNomor').innerHTML = 'NTPN <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuBulan').innerHTML = 'Bulan apa <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuNominal').innerHTML = 'Dibayar Berapa (Nominal) <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuTanggal').innerHTML = 'Tanggal <span class="text-danger">*</span>';
+                        document.getElementById('lblNtpnIndividuUraian').innerHTML = 'Catatan Khusus (Uraian Pembayaran) <span class="text-muted">(Opsional)</span>';
+                    }
+
+                    const availMonthsStr = this.dataset.bulan || '[]';
+                    let availMonths = [];
+                    try {
+                        availMonths = JSON.parse(availMonthsStr);
+                    } catch(e) {}
+
+                    document.getElementById('ntpnIndividuNidn').value = nidn;
+                    document.getElementById('ntpnIndividuNidnLabel').textContent = nidn + ' - ' + nama + ' (LEBIH BAYAR - ' + trxType.toUpperCase() + ')';
+                    document.getElementById('ntpnIndividuNomor').value = '';
+                    document.getElementById('ntpnIndividuTanggal').value = getTodayDate();
+                    document.getElementById('ntpnIndividuNominal').value = '';
+                    document.getElementById('ntpnIndividuUraian').value = '';
+
+                    // Populate month dropdown
+                    const bulanSelect = document.getElementById('ntpnIndividuBulan');
+                    bulanSelect.innerHTML = '<option value="">-- Pilih Bulan --</option>';
+                    const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+                    availMonths.forEach(m => {
+                        const opt = document.createElement('option');
+                        // m bisa berupa objek {bulan: X, nominal: Y} atau angka biasa jika format lama
+                        const mVal = typeof m === 'object' ? m.bulan : m;
+                        const mNom = typeof m === 'object' ? m.nominal : 0;
+                        opt.value = mVal;
+                        opt.dataset.nominal = mNom;
+                        opt.textContent = monthNames[mVal-1];
+                        bulanSelect.appendChild(opt);
+                    });
+
+                    document.getElementById('btnSubmitNtpnIndividu').innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses`;
+
+                    if (ntpnIndividuModal) ntpnIndividuModal.show();
+                } else {
+                    document.getElementById('sp2dIndividuNidn').value = nidn;
+                    document.getElementById('sp2dIndividuNidnLabel').textContent = nidn + ' - ' + nama + ' (KURANG BAYAR)';
+                    document.getElementById('sp2dIndividuNomor').value = '';
+                    document.getElementById('sp2dIndividuTanggal').value = getTodayDate();
+                    document.getElementById('sp2dIndividuUraian').value = '';
+
+                    document.getElementById('btnSubmitSp2dIndividu').innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D`;
+
+                    if (sp2dIndividuModal) sp2dIndividuModal.show();
+                }
             });
         });
 
+        // Event listener for month dropdown to auto-fill Nominal and Uraian placeholder
+        const ntpnIndividuBulanEl = document.getElementById('ntpnIndividuBulan');
+        if (ntpnIndividuBulanEl) {
+            ntpnIndividuBulanEl.addEventListener('change', function() {
+                const trxType = document.getElementById('ntpnIndividuJenisTransaksi').value;
+                if (this.value) {
+                    const selectedOpt = this.options[this.selectedIndex];
+                    const nominal = selectedOpt.dataset.nominal || '';
+                    const monthName = selectedOpt.text;
+                    const prefix = trxType === 'Pemotongan' ? 'Pemotongan' : 'Pengembalian';
+                    document.getElementById('ntpnIndividuUraian').placeholder = 'Cth: '+ prefix + ' pembayaran untuk bulan ' + monthName;
+                    
+                    if (trxType === 'Pemotongan') {
+                        if(nominal) {
+                            document.getElementById('ntpnIndividuNominal').value = nominal;
+                        }
+                    }
+                } else {
+                    document.getElementById('ntpnIndividuUraian').placeholder = 'Cth: Pemotongan Pembayaran ';
+                    if (trxType === 'Pemotongan') {
+                        document.getElementById('ntpnIndividuNominal').value = '';
+                    }
+                }
+            });
+        }
+
+        // Handler untuk Kurang Bayar (SP2D Individu)
         const btnSubmitSp2dIndividu = document.getElementById('btnSubmitSp2dIndividu');
         if (btnSubmitSp2dIndividu) {
             btnSubmitSp2dIndividu.addEventListener('click', async function () {
                 const nidn = document.getElementById('sp2dIndividuNidn').value;
-                const jenis = document.getElementById('sp2dIndividuJenis').value;
-                const uraianPembayaran = document.getElementById('sp2dIndividuUraian').value.trim();
+                const jenis = 'kurang';
+                let uraianPembayaran = document.getElementById('sp2dIndividuUraian').value.trim();
                 const noSp2d = document.getElementById('sp2dIndividuNomor').value.trim();
                 const tglSp2d = document.getElementById('sp2dIndividuTanggal').value;
-
-                const labelText = btnSubmitSp2dIndividu.dataset.labelText || 'SP2D';
 
                 if (!noSp2d || !tglSp2d) {
                     if (sp2dIndividuModal) sp2dIndividuModal.hide();
                     if (alertApi) {
-                        await alertApi.warning('Peringatan', `No ${labelText} dan Tanggal wajib diisi.`);
+                        await alertApi.warning('Peringatan', `No SP2D dan Tanggal wajib diisi.`);
                     } else {
-                        alert(`No ${labelText} dan Tanggal wajib diisi.`);
+                        alert(`No SP2D dan Tanggal wajib diisi.`);
                     }
                     if (sp2dIndividuModal) sp2dIndividuModal.show();
                     return;
@@ -957,19 +1154,21 @@
 
                 const konfHtml = `
                     <div class="text-start">
-                        <div>NIDN: <b>${nidn}</b></div>
-                        <div>No ${labelText}: <b>${noSp2d}</b></div>
-                        <div>Tanggal: <b>${tglSp2d}</b></div>
-                        <div class="mt-2 alert alert-warning mb-0 small">Data ${labelText} tidak bisa diubah setelah diproses.</div>
+                        <p class="mb-2">Anda akan memproses <strong>SP2D</strong> untuk NIDN: <strong>${nidn}</strong>.</p>
+                        <table class="table table-sm table-borderless">
+                            <tr><td style="width:100px;">SP2D</td><td>: ${noSp2d}</td></tr>
+                            <tr><td>Tanggal</td><td>: ${tglSp2d}</td></tr>
+                        </table>
+                        <div class="mt-2 alert alert-warning mb-0 small">Data SP2D tidak bisa diubah setelah diproses.</div>
                     </div>
                 `;
 
                 let confirmed = false;
                 if (alertApi) {
-                    const r = await alertApi.question(`Konfirmasi Proses ${labelText} Individu`, konfHtml, { confirmButtonText: 'Ya, Proses' });
+                    const r = await alertApi.question(`Konfirmasi Proses SP2D Individu`, konfHtml, { confirmButtonText: 'Ya, Proses' });
                     confirmed = r && r.isConfirmed;
                 } else {
-                    confirmed = confirm(`Yakin ingin memproses ${labelText} ini? Data tidak bisa diubah setelahnya.`);
+                    confirmed = confirm(`Yakin ingin memproses data ini?\nNIDN: ${nidn}\nSP2D: ${noSp2d}`);
                 }
 
                 if (!confirmed) {
@@ -1001,32 +1200,137 @@
                     });
 
                     const data = await response.json();
-
                     if (data.success) {
-                        if (sp2dIndividuModal) sp2dIndividuModal.hide();
-                        if (alertApi) {
-                            await alertApi.success('Berhasil', data.message || `${labelText} berhasil diproses.`);
-                        } else {
-                            alert(data.message || `${labelText} berhasil diproses.`);
-                        }
+                        if (alertApi) await alertApi.success('Berhasil', data.message);
+                        else alert('Berhasil memproses SP2D.');
                         window.location.reload();
                     } else {
-                        if (alertApi) {
-                            await alertApi.error('Gagal', data.message || 'Terjadi kesalahan.');
-                        } else {
-                            alert(data.message || 'Terjadi kesalahan.');
-                        }
+                        if (alertApi) await alertApi.error('Gagal', data.message || 'Terjadi kesalahan.');
+                        else alert(data.message || 'Terjadi kesalahan.');
+                        if (sp2dIndividuModal) sp2dIndividuModal.show();
                     }
                 } catch (err) {
-                    console.error('SP2D submit error:', err);
-                    if (alertApi) {
-                        await alertApi.error('Error', 'Gagal menghubungi server. Silakan coba lagi.');
-                    } else {
-                        alert('Gagal menghubungi server.');
-                    }
+                    console.error('Submit error:', err);
+                    if (alertApi) await alertApi.error('Error', 'Gagal menghubungi server.');
+                    else alert('Gagal menghubungi server.');
+                    if (sp2dIndividuModal) sp2dIndividuModal.show();
                 } finally {
                     btnSubmitSp2dIndividu.disabled = false;
-                    btnSubmitSp2dIndividu.innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses ${labelText}`;
+                    btnSubmitSp2dIndividu.innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses SP2D`;
+                }
+            });
+        }
+
+        // Handler untuk Lebih Bayar (NTPN Individu)
+        const btnSubmitNtpnIndividu = document.getElementById('btnSubmitNtpnIndividu');
+        if (btnSubmitNtpnIndividu) {
+            btnSubmitNtpnIndividu.addEventListener('click', async function () {
+                const nidn = document.getElementById('ntpnIndividuNidn').value;
+                const jenis = 'lebih';
+                let uraianPembayaran = document.getElementById('ntpnIndividuUraian').value.trim();
+                const noSp2d = document.getElementById('ntpnIndividuNomor').value.trim();
+                const tglSp2d = document.getElementById('ntpnIndividuTanggal').value;
+                const bulan = document.getElementById('ntpnIndividuBulan').value;
+                const nominalBayar = document.getElementById('ntpnIndividuNominal').value.trim();
+
+                const trxType = document.getElementById('ntpnIndividuJenisTransaksi').value;
+                const isPemotongan = (trxType === 'Pemotongan');
+                const jenisTrx = isPemotongan ? 'Pemotongan Lebih Bayar' : 'Pengembalian Lebih Bayar';
+                
+                if (uraianPembayaran === '') {
+                    if (bulan) {
+                        const ntpnBulanEl = document.getElementById('ntpnIndividuBulan');
+                        const monthName = ntpnBulanEl.options[ntpnBulanEl.selectedIndex].text;
+                        const prefix = isPemotongan ? 'Pemotongan' : 'Pengembalian';
+                        uraianPembayaran = prefix + ' pembayaran untuk bulan ' + monthName;
+                    } else {
+                        uraianPembayaran = jenisTrx;
+                    }
+                }
+
+                if ((!isPemotongan && !noSp2d) || !tglSp2d || !bulan || !nominalBayar) {
+                    if (ntpnIndividuModal) ntpnIndividuModal.hide();
+                    if (alertApi) {
+                        await alertApi.warning('Peringatan', `Semua field ber-bintang merah wajib diisi.`);
+                    } else {
+                        alert(`Semua field wajib diisi.`);
+                    }
+                    if (ntpnIndividuModal) ntpnIndividuModal.show();
+                    return;
+                }
+
+                if (ntpnIndividuModal) ntpnIndividuModal.hide();
+
+                const konfHtml = `
+                    <div class="text-start">
+                        <p class="mb-2">Anda akan memproses cicilan/pembayaran untuk NIDN: <strong>${nidn}</strong>.</p>
+                        <table class="table table-sm table-borderless">
+                            <tr><td style="width:100px;">Bulan</td><td>: ${bulan}</td></tr>
+                            <tr><td>Nominal</td><td>: Rp ${new Intl.NumberFormat('id-ID').format(nominalBayar)}</td></tr>
+                            ${!isPemotongan ? `<tr><td>No Bukti</td><td>: ${noSp2d}</td></tr>` : ''}
+                            <tr><td>Tanggal</td><td>: ${tglSp2d}</td></tr>
+                        </table>
+                        <div class="mt-2 alert alert-warning mb-0 small">Data tidak bisa diubah setelah diproses.</div>
+                    </div>
+                `;
+
+                let confirmed = false;
+                if (alertApi) {
+                    const r = await alertApi.question(`Konfirmasi Proses Pembayaran`, konfHtml, { confirmButtonText: 'Ya, Proses' });
+                    confirmed = r && r.isConfirmed;
+                } else {
+                    confirmed = confirm(`Yakin ingin memproses data ini?\nNIDN: ${nidn}\nBulan: ${bulan}\nNominal: Rp ${nominalBayar}`);
+                }
+
+                if (!confirmed) {
+                    if (ntpnIndividuModal) ntpnIndividuModal.show();
+                    return;
+                }
+
+                btnSubmitNtpnIndividu.disabled = true;
+                btnSubmitNtpnIndividu.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Memproses...';
+
+                try {
+                    const token = document.querySelector('meta[name="csrf-token"]')?.content
+                               || document.querySelector('input[name="_token"]')?.value;
+
+                    const response = await fetch("{{ route('admin.kekurangan-bayar.aksi-sp2d') }}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': token,
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            nidn: nidn,
+                            jenis_sp2d: jenis,
+                            no_sp2d: noSp2d,
+                            tanggal_sp2d: tglSp2d,
+                            uraian_pembayaran: uraianPembayaran,
+                            bulan: bulan,
+                            nominal_bayar: nominalBayar,
+                            trx_type: trxType
+                        }),
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        if (alertApi) await alertApi.success('Berhasil', data.message);
+                        else alert('Berhasil memproses Pembayaran.');
+                        window.location.reload();
+                    } else {
+                        if (alertApi) await alertApi.error('Gagal', data.message || 'Terjadi kesalahan.');
+                        else alert(data.message || 'Terjadi kesalahan.');
+                        if (ntpnIndividuModal) ntpnIndividuModal.show();
+                    }
+                } catch (err) {
+                    console.error('Submit error:', err);
+                    if (alertApi) await alertApi.error('Error', 'Gagal menghubungi server.');
+                    else alert('Gagal menghubungi server.');
+                    if (ntpnIndividuModal) ntpnIndividuModal.show();
+                } finally {
+                    btnSubmitNtpnIndividu.disabled = false;
+                    btnSubmitNtpnIndividu.innerHTML = `<span class="tf-icons bx bx-send"></span>&nbsp; Proses`;
                 }
             });
         }

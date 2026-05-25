@@ -636,4 +636,3 @@ class UsulanTukinBerjalanController extends Controller
 		}
 	}
 }
-

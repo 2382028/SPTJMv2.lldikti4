@@ -69,25 +69,30 @@ class UsulanSusulanSptjmPtsController extends Controller
       }
 
       // Cek apakah PT ini sudah melakukan usulan SPTJM Susulan pada bulan & tahun terpilih
+      // DI BULAN AKTUAL SAAT INI (Current Month).
+      // Dengan mengecek tanggal_usulan, bukan dari ID usulan.
+      $currentMonth = \Carbon\Carbon::now()->month;
       $sudahUsulkanBulanIni = DB::table('q_sptjm')
         ->where('kode_pts', $kodePts)
         ->where('bulan', $bulanTeks)
         ->where('tahun', $tahun)
         ->where('id_usulan', 'LIKE', 'S %')
+        ->whereMonth('tanggal_usulan', $currentMonth)
         ->exists();
 
       if ($sudahUsulkanBulanIni) {
-        Log::info('usulanSPTJM Susulan index blocked (already proposed)', [
+        Log::info('usulanSPTJM Susulan index blocked (already proposed this month)', [
           'kode_pts' => $kodePts,
           'bulan' => $bulan,
           'bulan_teks' => $bulanTeks,
           'tahun' => $tahun,
+          'current_month' => $currentMonth
         ]);
         $dosenList = collect();
         $dosenListPNS = collect();
         $dosenListNonPNS = collect();
         return view('pts.usulan-sptjm-susulan', compact('dosenList', 'dosenListPNS', 'dosenListNonPNS', 'bulan'))
-          ->with('info', 'Sudah melakukan usulan SPTJM Susulan pada periode ini.');
+          ->with('info', 'Sudah melakukan usulan SPTJM Susulan di bulan ini. Anda dapat mengusulkan susulan kembali di bulan berikutnya.');
       }
 
       // Ambil NIDN dosen yang sudah diusulkan untuk bulan + tahun + kode_pts tersebut
@@ -95,8 +100,11 @@ class UsulanSusulanSptjmPtsController extends Controller
         ->where('kode_pts', $kodePts)
         ->where('bulan', $bulanTeks)
         ->where('tahun', $tahun)
-        ->where('id_usulan', '<>', 0)
+        ->where('id_usulan', '<>', '0')
         ->pluck('nidn')
+        ->filter(function ($value) {
+            return !empty(trim($value)) && trim($value) !== '-';
+        })
         ->toArray();
 
       // Ambil dosen yang belum diusulkan di q_sptjm untuk periode ini
@@ -234,8 +242,11 @@ class UsulanSusulanSptjmPtsController extends Controller
       ->where('kode_pts', $kodePts)
       ->where('bulan', $bulanTeks)
       ->where('tahun', $tahun)
-      ->where('id_usulan', '<>', 0)
+      ->where('id_usulan', '<>', '0')
       ->pluck('nidn')
+      ->filter(function ($value) {
+          return !empty(trim($value)) && trim($value) !== '-';
+      })
       ->toArray();
 
 
@@ -387,8 +398,9 @@ class UsulanSusulanSptjmPtsController extends Controller
     // $alamatPts = $user->alamat;
 
   $tahun = session('tahun');
-  // Gunakan bulan yang dipilih di dropdown untuk ID usulan dan kolom KodeUsulan{Bulan}
-  $bulanAngka = str_pad((string)\Carbon\Carbon::now()->month, 2, '0', STR_PAD_LEFT);
+  // Gunakan bulan yang DIPILIH DI DROPDOWN untuk prefix ID usulan
+  // Misal: Dropdown Maret -> 03 (S 03...)
+  $bulanAngka = str_pad($request->bulan, 2, '0', STR_PAD_LEFT);
 
     $namaBulan = [
       1 => 'Januari',

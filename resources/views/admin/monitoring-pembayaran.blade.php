@@ -267,7 +267,8 @@ $months = [
         </tr>
 
         <tr class="fw-bold table-light">
-          <td colspan="5" class="text-center">Jumlah Selisih Bayar</td>
+          <td colspan="4" class="text-center">Jumlah Selisih Bayar</td>
+          <td></td>
           <td class="text-end">{{ number_format((float)($selisihTotals['selisihTpd'] ?? 0),0,',','.') }}</td>
           @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihTkgb'] ?? 0),0,',','.') }}</td>@endif
           <td class="text-end">{{ number_format((float)($selisihTotals['selisihPajakTpd'] ?? 0),0,',','.') }}</td>

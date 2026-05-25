@@ -278,15 +278,25 @@ $months = [
         </tr>
 
         @php
-          // Total Akhir = Jumlah + Total Pembayaran Uraian
           $riwayatNominalSum = collect($riwayatPembayaran ?? [])->sum('nominal');
           $riwayatPajakSum = collect($riwayatPembayaran ?? [])->sum('pajak');
           $riwayatBersihSum = collect($riwayatPembayaran ?? [])->sum('bersih');
-          $totalAkhirKotorTpd = $totalKotorTpd + $riwayatNominalSum;
+          // Deteksi kasus: selisih < 0 = Kurang Bayar, selisih > 0 = Lebih Bayar
+          $selisihBersihTotal = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
+          $isKurangBayar = ($selisihBersihTotal < 0);
+          if ($isKurangBayar) {
+            // Kurang Bayar: Total Akhir = Jumlah + Total Pembayaran Uraian
+            $totalAkhirKotorTpd = $totalKotorTpd + $riwayatNominalSum;
+            $totalAkhirPajakTpd = $totalPajakTpd + $riwayatPajakSum;
+            $totalAkhirBersihTpd = $totalBersihTpd + $riwayatBersihSum;
+          } else {
+            // Lebih Bayar: Total Akhir = Jumlah - Total Pembayaran Uraian
+            $totalAkhirKotorTpd = $totalKotorTpd - $riwayatNominalSum;
+            $totalAkhirPajakTpd = $totalPajakTpd - $riwayatPajakSum;
+            $totalAkhirBersihTpd = $totalBersihTpd - $riwayatBersihSum;
+          }
           $totalAkhirKotorTkgb = $totalKotorTkgb;
-          $totalAkhirPajakTpd = $totalPajakTpd + $riwayatPajakSum;
           $totalAkhirPajakTkgb = $totalPajakTkgb;
-          $totalAkhirBersihTpd = $totalBersihTpd + $riwayatBersihSum;
           $totalAkhirBersihTkgb = $totalBersihTkgb;
           $totalAkhirGaji = $totalGaji;
         @endphp
@@ -360,9 +370,20 @@ $months = [
           $uraianSelisihNominal = (float)($selisihTotals['selisihTpd'] ?? 0);
           $uraianSelisihPajak = (float)($selisihTotals['selisihPajakTpd'] ?? 0);
           $uraianSelisihBersih = (float)($selisihTotals['selisihBersihTpd'] ?? 0);
-          $uraianTotalAkhirNominal = $totalUraianNominal + $uraianSelisihNominal;
-          $uraianTotalAkhirPajak = $totalUraianPajak + $uraianSelisihPajak;
-          $uraianTotalAkhirBersih = $totalUraianBersih + $uraianSelisihBersih;
+          // Deteksi kasus dari selisih utama
+          $selisihBersihTotalUraian = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
+          if ($selisihBersihTotalUraian < 0) {
+            // Kurang Bayar: Total Akhir = Total Pembayaran + Selisih (negatif) → 0
+            $uraianTotalAkhirNominal = $totalUraianNominal + $uraianSelisihNominal;
+            $uraianTotalAkhirPajak = $totalUraianPajak + $uraianSelisihPajak;
+            $uraianTotalAkhirBersih = $totalUraianBersih + $uraianSelisihBersih;
+          } else {
+            // Lebih Bayar: Total Akhir = Selisih - Total Pembayaran → 0
+            // Pajak = 0 karena pajak sudah dipotong saat pembayaran awal, dosen tidak perlu mengembalikan pajak
+            $uraianTotalAkhirNominal = $uraianSelisihNominal - $totalUraianNominal;
+            $uraianTotalAkhirPajak = 0;
+            $uraianTotalAkhirBersih = $uraianSelisihBersih - $totalUraianBersih;
+          }
         @endphp
         <tr class="fw-bold table-light">
           <td colspan="3" class="text-start">Total Pembayaran</td>
@@ -477,13 +498,15 @@ $months = [
             const sl=data.selisihTotals||{};
             tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
-            // Total Akhir (soft green) = Jumlah + Total Pembayaran Uraian
+            // Total Akhir: Kurang Bayar → Jumlah + Uraian, Lebih Bayar → Jumlah - Uraian
             const riwayatData2 = data.riwayatPembayaran || [];
             let riwNom=0, riwPjk=0, riwBrs=0;
             riwayatData2.forEach(item => { riwNom+=parseFloat(item.nominal||0); riwPjk+=parseFloat(item.pajak||0); riwBrs+=parseFloat(item.bersih||0); });
-            const taKotorTpd=(t.kotorTpd||0)+riwNom;
-            const taPajakTpd=(t.pajakTpd||0)+riwPjk;
-            const taBersihTpd=(t.bersihTpd||0)+riwBrs;
+            const selisihBersihTotal = (sl.selisihBersihTpd||0) + (sl.selisihBersihTkgb||0);
+            const isKurang = selisihBersihTotal < 0;
+            const taKotorTpd = isKurang ? (t.kotorTpd||0)+riwNom : (t.kotorTpd||0)-riwNom;
+            const taPajakTpd = isKurang ? (t.pajakTpd||0)+riwPjk : (t.pajakTpd||0)-riwPjk;
+            const taBersihTpd = isKurang ? (t.bersihTpd||0)+riwBrs : (t.bersihTpd||0)-riwBrs;
             tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0fff4"><td colspan="4" class="text-center">Total Akhir</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(taKotorTpd)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(taPajakTpd)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(taBersihTpd)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
           }
 
@@ -565,15 +588,17 @@ $months = [
               `;
               tbodyRiwayat.appendChild(trSelisih);
 
-              // Row: Total Akhir (soft green) = Total Pembayaran + Selisih
+              // Row: Total Akhir: Kurang → Pembayaran + Selisih, Lebih → Selisih - Pembayaran
+              const selisihBersihTotalU = (slU.selisihBersihTpd||0) + (slU.selisihBersihTkgb||0);
+              const isKurangU = selisihBersihTotalU < 0;
               const trAkhir = document.createElement('tr');
               trAkhir.className = 'fw-bold';
               trAkhir.style.backgroundColor = '#f0fff4';
               trAkhir.innerHTML = `
                 <td colspan="3" class="text-start">Total Akhir</td>
-                <td class="text-end">${fmt(totalUraianNominal + uraianSelisihNom)}</td>
-                <td class="text-end">${fmt(totalUraianPajak + uraianSelisihPjk)}</td>
-                <td class="text-end">${fmt(totalUraianBersih + uraianSelisihBrs)}</td>
+                <td class="text-end">${fmt(isKurangU ? totalUraianNominal + uraianSelisihNom : uraianSelisihNom - totalUraianNominal)}</td>
+                <td class="text-end">${fmt(isKurangU ? totalUraianPajak + uraianSelisihPjk : 0)}</td>
+                <td class="text-end">${fmt(isKurangU ? totalUraianBersih + uraianSelisihBrs : uraianSelisihBrs - totalUraianBersih)}</td>
                 <td colspan="2"></td>
               `;
               tbodyRiwayat.appendChild(trAkhir);

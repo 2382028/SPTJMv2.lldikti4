@@ -266,7 +266,7 @@ $months = [
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
 
-        <tr class="fw-bold table-light">
+        <tr class="fw-bold" style="background-color: #fff0f0;">
           <td colspan="5" class="text-center">Jumlah Selisih Bayar</td>
           <td class="text-end">{{ number_format((float)($selisihTotals['selisihTpd'] ?? 0),0,',','.') }}</td>
           @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihTkgb'] ?? 0),0,',','.') }}</td>@endif
@@ -274,6 +274,31 @@ $months = [
           @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihPajakTkgb'] ?? 0),0,',','.') }}</td>@endif
           <td class="text-end">{{ number_format((float)($selisihTotals['selisihBersihTpd'] ?? 0),0,',','.') }}</td>
           @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihBersihTkgb'] ?? 0),0,',','.') }}</td>@endif
+          <td colspan="2"></td><td colspan="2"></td>
+        </tr>
+
+        @php
+          // Total Akhir = Jumlah + Total Pembayaran Uraian
+          $riwayatNominalSum = collect($riwayatPembayaran ?? [])->sum('nominal');
+          $riwayatPajakSum = collect($riwayatPembayaran ?? [])->sum('pajak');
+          $riwayatBersihSum = collect($riwayatPembayaran ?? [])->sum('bersih');
+          $totalAkhirKotorTpd = $totalKotorTpd + $riwayatNominalSum;
+          $totalAkhirKotorTkgb = $totalKotorTkgb;
+          $totalAkhirPajakTpd = $totalPajakTpd + $riwayatPajakSum;
+          $totalAkhirPajakTkgb = $totalPajakTkgb;
+          $totalAkhirBersihTpd = $totalBersihTpd + $riwayatBersihSum;
+          $totalAkhirBersihTkgb = $totalBersihTkgb;
+          $totalAkhirGaji = $totalGaji;
+        @endphp
+        <tr class="fw-bold" style="background-color: #f0fff4;">
+          <td colspan="4" class="text-center">Total Akhir</td>
+          <td class="text-end">{{ number_format($totalAkhirGaji,0,',','.') }}</td>
+          <td class="text-end">{{ number_format($totalAkhirKotorTpd,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($totalAkhirKotorTkgb,0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($totalAkhirPajakTpd,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($totalAkhirPajakTkgb,0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($totalAkhirBersihTpd,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($totalAkhirBersihTkgb,0,',','.') }}</td>@endif
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
       </tbody>
@@ -293,14 +318,22 @@ $months = [
           <th class="text-center">Nominal</th>
           <th class="text-center">Pajak</th>
           <th class="text-center">Bersih</th>
-          <th class="text-center">Nomor</th>
+          <th class="text-center">No SP2D</th>
           <th class="text-center">Tanggal</th>
         </tr>
       </thead>
       <tbody>
-        @php $totalUraianBersih = 0; @endphp
+        @php
+          $totalUraianBersih = 0;
+          $totalUraianNominal = 0;
+          $totalUraianPajak = 0;
+        @endphp
         @forelse ($riwayatPembayaran ?? [] as $index => $riwayat)
-        @php $totalUraianBersih += ($riwayat->bersih ?? 0); @endphp
+        @php
+          $totalUraianBersih += ($riwayat->bersih ?? 0);
+          $totalUraianNominal += ($riwayat->nominal ?? 0);
+          $totalUraianPajak += ($riwayat->pajak ?? 0);
+        @endphp
         <tr>
           <td class="text-center">{{ $index + 1 }}</td>
           @php
@@ -323,11 +356,33 @@ $months = [
         </tr>
         @endforelse
         @if(count($riwayatPembayaran ?? []) > 0)
+        @php
+          $uraianSelisihNominal = (float)($selisihTotals['selisihTpd'] ?? 0);
+          $uraianSelisihPajak = (float)($selisihTotals['selisihPajakTpd'] ?? 0);
+          $uraianSelisihBersih = (float)($selisihTotals['selisihBersihTpd'] ?? 0);
+          $uraianTotalAkhirNominal = $totalUraianNominal + $uraianSelisihNominal;
+          $uraianTotalAkhirPajak = $totalUraianPajak + $uraianSelisihPajak;
+          $uraianTotalAkhirBersih = $totalUraianBersih + $uraianSelisihBersih;
+        @endphp
         <tr class="fw-bold table-light">
           <td colspan="3" class="text-start">Total Pembayaran</td>
-          <td></td>
-          <td></td>
+          <td class="text-end">{{ number_format($totalUraianNominal, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($totalUraianPajak, 0, ',', '.') }}</td>
           <td class="text-end">{{ number_format($totalUraianBersih, 0, ',', '.') }}</td>
+          <td colspan="2"></td>
+        </tr>
+        <tr class="fw-bold" style="background-color: #fff0f0;">
+          <td colspan="3" class="text-start">Selisih Bayar</td>
+          <td class="text-end">{{ number_format($uraianSelisihNominal, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($uraianSelisihPajak, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($uraianSelisihBersih, 0, ',', '.') }}</td>
+          <td colspan="2"></td>
+        </tr>
+        <tr class="fw-bold" style="background-color: #f0fff4;">
+          <td colspan="3" class="text-start">Total Akhir</td>
+          <td class="text-end">{{ number_format($uraianTotalAkhirNominal, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($uraianTotalAkhirPajak, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($uraianTotalAkhirBersih, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
         @endif
@@ -416,11 +471,20 @@ $months = [
 
             // Totals
             const t=data.totals||{};
-            tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="4" class="text-center">Jumlah</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(t.kotorTpd||0)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(t.pajakTpd||0)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(t.bersihTpd||0)}</td>${tkc(t.bersihTkgb||0)}<td colspan="4"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="4" class="text-center">Jumlah</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(t.kotorTpd||0)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(t.pajakTpd||0)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(t.bersihTpd||0)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
-            // Selisih totals
+            // Selisih totals (soft red)
             const sl=data.selisihTotals||{};
-            tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="4"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+
+            // Total Akhir (soft green) = Jumlah + Total Pembayaran Uraian
+            const riwayatData2 = data.riwayatPembayaran || [];
+            let riwNom=0, riwPjk=0, riwBrs=0;
+            riwayatData2.forEach(item => { riwNom+=parseFloat(item.nominal||0); riwPjk+=parseFloat(item.pajak||0); riwBrs+=parseFloat(item.bersih||0); });
+            const taKotorTpd=(t.kotorTpd||0)+riwNom;
+            const taPajakTpd=(t.pajakTpd||0)+riwPjk;
+            const taBersihTpd=(t.bersihTpd||0)+riwBrs;
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0fff4"><td colspan="4" class="text-center">Total Akhir</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(taKotorTpd)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(taPajakTpd)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(taBersihTpd)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
           }
 
           // UPDATE TABEL KEDUA (URAIAN PEMBAYARAN)
@@ -464,16 +528,55 @@ $months = [
                 tbodyRiwayat.appendChild(tr);
               });
 
+              let totalUraianNominal = 0;
+              let totalUraianPajak = 0;
+              riwayatData.forEach(item => {
+                totalUraianNominal += parseFloat(item.nominal || 0);
+                totalUraianPajak += parseFloat(item.pajak || 0);
+              });
+
+              const slU = data.selisihTotals || {};
+              const uraianSelisihNom = slU.selisihTpd || 0;
+              const uraianSelisihPjk = slU.selisihPajakTpd || 0;
+              const uraianSelisihBrs = slU.selisihBersihTpd || 0;
+
+              // Row: Total Pembayaran
               const trTotal = document.createElement('tr');
               trTotal.className = 'fw-bold table-light';
               trTotal.innerHTML = `
                 <td colspan="3" class="text-start">Total Pembayaran</td>
-                <td></td>
-                <td></td>
+                <td class="text-end">${fmt(totalUraianNominal)}</td>
+                <td class="text-end">${fmt(totalUraianPajak)}</td>
                 <td class="text-end">${fmt(totalUraianBersih)}</td>
                 <td colspan="2"></td>
               `;
               tbodyRiwayat.appendChild(trTotal);
+
+              // Row: Selisih Bayar (soft red)
+              const trSelisih = document.createElement('tr');
+              trSelisih.className = 'fw-bold';
+              trSelisih.style.backgroundColor = '#fff0f0';
+              trSelisih.innerHTML = `
+                <td colspan="3" class="text-start">Selisih Bayar</td>
+                <td class="text-end">${fmt(uraianSelisihNom)}</td>
+                <td class="text-end">${fmt(uraianSelisihPjk)}</td>
+                <td class="text-end">${fmt(uraianSelisihBrs)}</td>
+                <td colspan="2"></td>
+              `;
+              tbodyRiwayat.appendChild(trSelisih);
+
+              // Row: Total Akhir (soft green) = Total Pembayaran + Selisih
+              const trAkhir = document.createElement('tr');
+              trAkhir.className = 'fw-bold';
+              trAkhir.style.backgroundColor = '#f0fff4';
+              trAkhir.innerHTML = `
+                <td colspan="3" class="text-start">Total Akhir</td>
+                <td class="text-end">${fmt(totalUraianNominal + uraianSelisihNom)}</td>
+                <td class="text-end">${fmt(totalUraianPajak + uraianSelisihPjk)}</td>
+                <td class="text-end">${fmt(totalUraianBersih + uraianSelisihBrs)}</td>
+                <td colspan="2"></td>
+              `;
+              tbodyRiwayat.appendChild(trAkhir);
             }
           }
 

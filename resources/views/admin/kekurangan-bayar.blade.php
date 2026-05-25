@@ -41,7 +41,7 @@
     <div class="row">
         <div class="col-12">
             <div class="card mb-4">
-                <h5 class="card-header">Proses Kurang/Lebih Bayar - Tahun {{ $versi }}</h5>
+                <h5 class="card-header">Monitoring Kurang/Lebih Bayar - Tahun {{ $versi }}</h5>
                 <div class="card-body">
                     <form method="POST" action="{{ route('admin.kekurangan-bayar.proses') }}" id="formProsesKekurangan">
                         @csrf
@@ -607,7 +607,6 @@
             const tabToActivate = document.getElementById(activeTabId);
             if (tabToActivate) tabToActivate.click();
         }
-        // ==========================================
 
         const getSelectedText = (sel) => {
             if (!sel) return '';

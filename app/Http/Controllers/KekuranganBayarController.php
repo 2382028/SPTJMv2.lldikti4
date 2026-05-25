@@ -641,19 +641,49 @@ class KekuranganBayarController extends Controller
   {
     $versi = session('tahun');
 
-    // Ambil NIDN yang sudah pernah diproses SP2D (sudah ada di t_uraian_pembayaran)
-    // sehingga tidak ditampilkan lagi di tabel kurang/lebih bayar
-    $paidNidns = [];
+    // Ambil riwayat pembayaran untuk menghitung total cicilan per bulan
+    $paidKotorByNidnMonth = [];
     try {
-      $paidNidns = DB::table('t_uraian_pembayaran')
+      $paidRecords = DB::table('t_uraian_pembayaran')
         ->where('tahun', $versi)
-        ->whereNotNull('nomor')
-        ->where('nomor', '!=', '')
-        ->select('nidn')
-        ->distinct()
-        ->pluck('nidn')
-        ->toArray();
+        ->select('nidn', 'bulan', 'nominal')
+        ->get();
+      foreach ($paidRecords as $pr) {
+          if (!isset($paidKotorByNidnMonth[$pr->nidn][$pr->bulan])) {
+              $paidKotorByNidnMonth[$pr->nidn][$pr->bulan] = 0;
+          }
+          $paidKotorByNidnMonth[$pr->nidn][$pr->bulan] += (float) $pr->nominal;
+      }
     } catch (\Throwable $e) { /* table might not exist yet */ }
+
+    $fullyPaidNidns = [];
+    if (!empty($paidKotorByNidnMonth)) {
+        $nids = array_keys($paidKotorByNidnMonth);
+        $kekuranganRows = DB::table('t_kekurangan')
+            ->where('tahun', $versi)
+            ->whereIn('nidn', $nids)
+            ->get();
+            
+        foreach ($kekuranganRows as $kr) {
+            $nidn = $kr->nidn;
+            $hasUnpaid = false;
+            for ($m = 1; $m <= 12; $m++) {
+                $selisihTpd = (float) ($kr->{'k_tpd' . $m} ?? 0);
+                $selisihTkgb = (float) ($kr->{'k_tkgb' . $m} ?? 0);
+                $selisihTotalKotor = abs($selisihTpd) + abs($selisihTkgb);
+                $paidKotor = $paidKotorByNidnMonth[$nidn][$m] ?? 0;
+                
+                // Jika bulan ini ada selisih dan jumlah yang dibayar masih kurang dari selisih
+                if ($selisihTotalKotor > 0.01 && $paidKotor < ($selisihTotalKotor - 0.01)) {
+                    $hasUnpaid = true;
+                    break;
+                }
+            }
+            if (!$hasUnpaid) {
+                $fullyPaidNidns[] = $nidn;
+            }
+        }
+    }
 
     $baseQuery = DB::table('s_transaksi_2 as k')
       ->join('t_kekurangan as k2', function ($join) {
@@ -662,9 +692,9 @@ class KekuranganBayarController extends Controller
       ->where('k2.tahun', $versi)
       ->where('k.Tahun_Versi', $versi);
 
-    // Filter NIDN yang sudah dibayarkan
-    if (!empty($paidNidns)) {
-      $baseQuery->whereNotIn('k.NIDN', $paidNidns);
+    // Filter NIDN yang SUDAH LUNAS SEMUA BULANNYA
+    if (!empty($fullyPaidNidns)) {
+      $baseQuery->whereNotIn('k.NIDN', $fullyPaidNidns);
     }
 
     $baseQuery->select(
@@ -696,7 +726,7 @@ class KekuranganBayarController extends Controller
       $tarifMap = [];
     }
 
-    $transformer = function ($row) use ($tarifMap) {
+    $transformer = function ($row) use ($tarifMap, $paidKotorByNidnMonth) {
       $jenisRow = (string) ($row->Jenis ?? '');
       $jenisKey = trim($jenisRow);
 
@@ -719,12 +749,38 @@ class KekuranganBayarController extends Controller
           $jabatan = (string) ($row->{'Jabatan' . $i} ?? ($row->Jabatan12 ?? ''));
           $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
 
-          $gaji = (float) $this->parseMoney($row->{'Gaji' . $i} ?? 0);
-          [$aktKotorTPD, $aktKotorTKGB] = $this->splitAktualKotorFromGaji($gaji, $kenaTKGB);
+          $k_tpd = (float) ($row->{'k_tpd' . $i} ?? 0);
+          $k_tkgb = (float) ($row->{'k_tkgb' . $i} ?? 0);
+          
+          $aktKotorTPD = $dbKotorTPD - $k_tpd;
+          $aktKotorTKGB = $dbKotorTKGB - $k_tkgb;
+          
+          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+
+          $paidNet = $paidKotorByNidnMonth[$row->NIDN][$i] ?? 0;
+          if ($paidNet > 0) {
+              // paidNet is the actual cash returned (net). We need to convert it to gross to apply to aktKotor
+              $paidGross = $paidNet;
+              if ($tarif < 1 && $tarif >= 0) {
+                  $paidGross = $paidNet / (1 - $tarif);
+              }
+              
+              $diffTPD = $dbKotorTPD - $aktKotorTPD;
+              if ($diffTPD > 0 && $paidGross > 0) {
+                  $addTPD = min($diffTPD, $paidGross);
+                  $aktKotorTPD += $addTPD;
+                  $paidGross -= $addTPD;
+              }
+              $diffTKGB = $dbKotorTKGB - $aktKotorTKGB;
+              if ($diffTKGB > 0 && $paidGross > 0) {
+                  $addTKGB = min($diffTKGB, $paidGross);
+                  $aktKotorTKGB += $addTKGB;
+                  $paidGross -= $addTKGB;
+              }
+          }
+
           $aktTPD = (int) round($aktKotorTPD);
           $aktTKGB = (int) round($aktKotorTKGB);
-
-          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
 
           $dbPajakTPD = $dbKotorTPD * $tarif;
           $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
@@ -736,9 +792,12 @@ class KekuranganBayarController extends Controller
 
           $sumDbKotorTPD += $dbKotorTPD; $sumDbKotorTKGB += $dbKotorTKGB; $sumDbPajakTPD += $dbPajakTPD; $sumDbPajakTKGB += $dbPajakTKGB; $sumDbBersih += $dbBersih;
           $sumAktKotorTPD += $aktKotorTPD; $sumAktKotorTKGB += $aktKotorTKGB; $sumAktPajakTPD += $aktPajakTPD; $sumAktPajakTKGB += $aktPajakTKGB; $sumAktBersih += $aktBersih;
+        } else {
+          $dbBersih = 0; $aktBersih = 0;
         }
         $row->{'db_tpd' . $i} = $dbTPD; $row->{'db_tkgb' . $i} = $dbTKGB;
         $row->{'exp_tpd' . $i} = $aktTPD; $row->{'exp_tkgb' . $i} = $aktTKGB;
+        $row->{'db_bersih' . $i} = $dbBersih; $row->{'akt_bersih' . $i} = $aktBersih;
       }
 
       $row->jml_tpd = $sumDbKotorTPD; $row->jml_tkgb = $sumDbKotorTKGB; $row->nilai_pjk_tpd = $sumDbPajakTPD; $row->nilai_pjk_tkgb = $sumDbPajakTKGB; $row->bersih = $sumDbBersih;
@@ -1026,17 +1085,23 @@ class KekuranganBayarController extends Controller
       'rekap_id' => 'nullable|integer',
       'nidn' => 'nullable|string',
       'jenis_sp2d' => 'nullable|string|in:kurang,lebih',
-      'no_sp2d' => 'required|string|max:100',
+      'no_sp2d' => 'nullable|string|max:100',
       'tanggal_sp2d' => 'required|date',
       'uraian_pembayaran' => 'nullable|string|max:255',
+      'bulan' => 'nullable|integer|min:1|max:12',
+      'nominal_bayar' => 'nullable|numeric|min:0',
+      'trx_type' => 'nullable|string',
     ]);
 
     $rekapId = $request->input('rekap_id') ? (int) $request->input('rekap_id') : null;
     $nidnInput = trim((string) $request->input('nidn'));
     $jenisSp2d = $request->input('jenis_sp2d');
-    $noSp2d = trim($request->input('no_sp2d'));
+    $noSp2d = trim((string) $request->input('no_sp2d'));
     $tanggalSp2d = $request->input('tanggal_sp2d');
     $inputUraian = trim((string) $request->input('uraian_pembayaran'));
+    $inputBulan = $request->input('bulan');
+    $inputNominal = $request->input('nominal_bayar');
+    $trxType = trim((string) $request->input('trx_type'));
     $versi = session('tahun');
 
     if (!$versi) {
@@ -1127,7 +1192,12 @@ class KekuranganBayarController extends Controller
           'k.No_sp2d_1', 'k.No_sp2d_2', 'k.No_sp2d_3', 'k.No_sp2d_4', 'k.No_sp2d_5', 'k.No_sp2d_6',
           'k.No_sp2d_7', 'k.No_sp2d_8', 'k.No_sp2d_9', 'k.No_sp2d_10', 'k.No_sp2d_11', 'k.No_sp2d_12',
           'k.Tgl_sp2d_1', 'k.Tgl_sp2d_2', 'k.Tgl_sp2d_3', 'k.Tgl_sp2d_4', 'k.Tgl_sp2d_5', 'k.Tgl_sp2d_6',
-          'k.Tgl_sp2d_7', 'k.Tgl_sp2d_8', 'k.Tgl_sp2d_9', 'k.Tgl_sp2d_10', 'k.Tgl_sp2d_11', 'k.Tgl_sp2d_12'
+          'k.Tgl_sp2d_7', 'k.Tgl_sp2d_8', 'k.Tgl_sp2d_9', 'k.Tgl_sp2d_10', 'k.Tgl_sp2d_11', 'k.Tgl_sp2d_12',
+          'k.Gaji1', 'k.Gaji2', 'k.Gaji3', 'k.Gaji4', 'k.Gaji5', 'k.Gaji6', 'k.Gaji7', 'k.Gaji8', 'k.Gaji9', 'k.Gaji10', 'k.Gaji11', 'k.Gaji12',
+          'k.TPD1', 'k.TPD2', 'k.TPD3', 'k.TPD4', 'k.TPD5', 'k.TPD6', 'k.TPD7', 'k.TPD8', 'k.TPD9', 'k.TPD10', 'k.TPD11', 'k.TPD12',
+          'k.TKGB1', 'k.TKGB2', 'k.TKGB3', 'k.TKGB4', 'k.TKGB5', 'k.TKGB6', 'k.TKGB7', 'k.TKGB8', 'k.TKGB9', 'k.TKGB10', 'k.TKGB11', 'k.TKGB12',
+          'k.bersihTPD1', 'k.bersihTPD2', 'k.bersihTPD3', 'k.bersihTPD4', 'k.bersihTPD5', 'k.bersihTPD6', 'k.bersihTPD7', 'k.bersihTPD8', 'k.bersihTPD9', 'k.bersihTPD10', 'k.bersihTPD11', 'k.bersihTPD12',
+          'k.bersihTKGB1', 'k.bersihTKGB2', 'k.bersihTKGB3', 'k.bersihTKGB4', 'k.bersihTKGB5', 'k.bersihTKGB6', 'k.bersihTKGB7', 'k.bersihTKGB8', 'k.bersihTKGB9', 'k.bersihTKGB10', 'k.bersihTKGB11', 'k.bersihTKGB12'
         )
         ->get();
 
@@ -1159,7 +1229,10 @@ class KekuranganBayarController extends Controller
         $jenisRow = trim($dosen->Jenis ?? '');
         $jenisKey = $jenisRow;
 
-        for ($i = 1; $i <= 12; $i++) {
+        $startBulan = $inputBulan ? (int)$inputBulan : 1;
+        $endBulan = $inputBulan ? (int)$inputBulan : 12;
+
+        for ($i = $startBulan; $i <= $endBulan; $i++) {
           $selisihTpd = (float) ($dosen->{'k_tpd' . $i} ?? 0);
           $selisihTkgb = (float) ($dosen->{'k_tkgb' . $i} ?? 0);
           $selisihTotal = $selisihTpd + $selisihTkgb;
@@ -1179,17 +1252,24 @@ class KekuranganBayarController extends Controller
             continue;
           }
 
-          // Hitung pajak
+          // Hitung pajak (proporsional atau nol jika manual)
           $gol = trim((string) ($dosen->{'Gol' . $i} ?? ''));
           $jabatan = (string) ($dosen->{'Jabatan' . $i} ?? ($dosen->Jabatan12 ?? ''));
           $kenaTKGB = $this->isGuruBesarAtauProfesor($jabatan);
           $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
 
-          $nominalKotor = abs($selisihTpd) + abs($selisihTkgb);
-          $pajakTpd = abs($selisihTpd) * $tarif;
-          $pajakTkgb = $kenaTKGB ? (abs($selisihTkgb) * $tarif) : 0.0;
-          $totalPajak = $pajakTpd + $pajakTkgb;
-          $totalBersih = $nominalKotor - $totalPajak;
+          if ($inputNominal !== null) {
+              // Jika manual input "dibayar_berapa", kita asumsikan inputNominal adalah nilai bersih yang disetor
+              $totalBersih = (float) $inputNominal;
+              $totalPajak = 0; // Kita biarkan 0 untuk cicilan manual karena sulit diproporsikan jika hanya sisa
+              $nominalKotor = $totalBersih;
+          } else {
+              $nominalKotor = abs($selisihTpd) + abs($selisihTkgb);
+              $pajakTpd = abs($selisihTpd) * $tarif;
+              $pajakTkgb = $kenaTKGB ? (abs($selisihTkgb) * $tarif) : 0.0;
+              $totalPajak = $pajakTpd + $pajakTkgb;
+              $totalBersih = $nominalKotor - $totalPajak;
+          }
 
           // Generate uraian (tanpa nama bulan karena sudah ada di kolom bulan)
           if ($inputUraian !== '') {
@@ -1220,6 +1300,76 @@ class KekuranganBayarController extends Controller
             DB::table('t_uraian_pembayaran')->insert($insertBatch);
             $insertBatch = [];
           }
+        }
+        
+        // --- LOGIC PEMOTONGAN KE BULAN DEPAN ---
+        if ($trxType === 'Pemotongan' && $inputNominal !== null && (float)$inputNominal > 0) {
+            $remainingDeductionNet = (float) $inputNominal;
+            $updateData = [];
+            
+            for ($m = 1; $m <= 12; $m++) {
+                if ($remainingDeductionNet <= 0) break;
+                
+                // Cek apakah belum gajian: GajiM kosong atau 0
+                $gajiM = trim((string) ($dosen->{'Gaji' . $m} ?? ''));
+                $gajiMVal = (float) str_replace(',', '', $gajiM);
+                
+                if ($gajiMVal == 0) {
+                    $golM = trim((string) ($dosen->{'Gol' . $m} ?? ''));
+                    $jabatanM = (string) ($dosen->{'Jabatan' . $m} ?? ($dosen->Jabatan12 ?? ''));
+                    $kenaTKGBM = $this->isGuruBesarAtauProfesor($jabatanM);
+                    $tarifM = (float) (($tarifMap[$jenisKey][$golM] ?? 0) ?: 0);
+                    
+                    // 1. Coba potong dari TPD
+                    $currentNetTPD = (float) str_replace(',', '', ($dosen->{'bersihTPD' . $m} ?? 0));
+                    if ($currentNetTPD > 0 && $remainingDeductionNet > 0) {
+                        $deductionNet = min($currentNetTPD, $remainingDeductionNet);
+                        $deductionGross = $deductionNet;
+                        if ($tarifM < 1 && $tarifM >= 0) {
+                            $deductionGross = $deductionNet / (1 - $tarifM);
+                        }
+                        
+                        $currentGrossTPD = (float) str_replace(',', '', ($dosen->{'TPD' . $m} ?? 0));
+                        $newGrossTPD = max(0, $currentGrossTPD - $deductionGross);
+                        $newPajakTPD = $newGrossTPD * $tarifM;
+                        $newNetTPD = $newGrossTPD - $newPajakTPD;
+                        
+                        $updateData['TPD' . $m] = $newGrossTPD;
+                        $updateData['nilaiPajakTPD' . $m] = $newPajakTPD;
+                        $updateData['bersihTPD' . $m] = $newNetTPD;
+                        
+                        $remainingDeductionNet -= $deductionNet;
+                    }
+                    
+                    // 2. Jika masih ada sisa, coba potong dari TKGB
+                    $currentNetTKGB = (float) str_replace(',', '', ($dosen->{'bersihTKGB' . $m} ?? 0));
+                    if ($currentNetTKGB > 0 && $remainingDeductionNet > 0 && $kenaTKGBM) {
+                        $deductionNet = min($currentNetTKGB, $remainingDeductionNet);
+                        $deductionGross = $deductionNet;
+                        if ($tarifM < 1 && $tarifM >= 0) {
+                            $deductionGross = $deductionNet / (1 - $tarifM);
+                        }
+                        
+                        $currentGrossTKGB = (float) str_replace(',', '', ($dosen->{'TKGB' . $m} ?? 0));
+                        $newGrossTKGB = max(0, $currentGrossTKGB - $deductionGross);
+                        $newPajakTKGB = $newGrossTKGB * $tarifM;
+                        $newNetTKGB = $newGrossTKGB - $newPajakTKGB;
+                        
+                        $updateData['TKGB' . $m] = $newGrossTKGB;
+                        $updateData['nilaiPajakTKGB' . $m] = $newPajakTKGB;
+                        $updateData['bersihTKGB' . $m] = $newNetTKGB;
+                        
+                        $remainingDeductionNet -= $deductionNet;
+                    }
+                }
+            }
+            
+            if (!empty($updateData)) {
+                DB::table('s_transaksi_2')
+                  ->where('NIDN', $nidn)
+                  ->where('Tahun_Versi', $versi)
+                  ->update($updateData);
+            }
         }
       }
 

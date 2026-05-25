@@ -266,9 +266,8 @@ $months = [
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
 
-        <tr class="fw-bold" style="background-color: #fff0f0;">
-          <td colspan="4" class="text-center">Jumlah Selisih Bayar</td>
-          <td></td>
+        <tr class="fw-bold table-light">
+          <td colspan="5" class="text-center">Jumlah Selisih Bayar</td>
           <td class="text-end">{{ number_format((float)($selisihTotals['selisihTpd'] ?? 0),0,',','.') }}</td>
           @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihTkgb'] ?? 0),0,',','.') }}</td>@endif
           <td class="text-end">{{ number_format((float)($selisihTotals['selisihPajakTpd'] ?? 0),0,',','.') }}</td>
@@ -476,16 +475,7 @@ $months = [
 
             // Selisih totals (soft red)
             const sl=data.selisihTotals||{};
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="4" class="text-center">Jumlah Selisih Bayar</td><td></td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
-
-            // Total Akhir (soft green) = Jumlah + Total Pembayaran Uraian
-            const riwayatData2 = data.riwayatPembayaran || [];
-            let riwNom=0, riwPjk=0, riwBrs=0;
-            riwayatData2.forEach(item => { riwNom+=parseFloat(item.nominal||0); riwPjk+=parseFloat(item.pajak||0); riwBrs+=parseFloat(item.bersih||0); });
-            const taKotorTpd=(t.kotorTpd||0)+riwNom;
-            const taPajakTpd=(t.pajakTpd||0)+riwPjk;
-            const taBersihTpd=(t.bersihTpd||0)+riwBrs;
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0fff4"><td colspan="4" class="text-center">Total Akhir</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(taKotorTpd)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(taPajakTpd)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(taBersihTpd)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="4"></td></tr>`;
           }
 
           // UPDATE TABEL KEDUA (URAIAN PEMBAYARAN)

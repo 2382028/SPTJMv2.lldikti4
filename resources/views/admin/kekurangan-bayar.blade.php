@@ -242,7 +242,10 @@
                                                         <i class="bx bx-edit-alt"></i> Pembayaran
                                                     </button>
                                                     @else
-                                                    -
+                                                    <button type="button" class="btn btn-sm btn-warning btn-edit-riwayat py-0 px-2"
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" title="Edit Riwayat NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit"></i> Edit Riwayat
+                                                    </button>
                                                     @endif
                                                 </td>
                                         </tr>
@@ -393,7 +396,10 @@
                                                         <i class="bx bx-edit-alt"></i> Pembayaran
                                                     </button>
                                                     @else
-                                                    -
+                                                    <button type="button" class="btn btn-sm btn-warning btn-edit-riwayat py-0 px-2"
+                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" title="Edit Riwayat NIDN: {{ $row->NIDN }}" style="font-size:11px;">
+                                                        <i class="bx bx-edit"></i> Edit Riwayat
+                                                    </button>
                                                     @endif
                                                 </td>
                                         </tr>
@@ -654,6 +660,44 @@
                 <button type="button" class="btn btn-primary" id="btnSubmitNtpnIndividu">
                     <span class="tf-icons bx bx-send"></span>&nbsp; Proses
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Modal Edit Riwayat Pembayaran --}}
+<div class="modal fade" id="modalEditRiwayat" tabindex="-1" aria-labelledby="modalEditRiwayatLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalEditRiwayatLabel">Edit Riwayat Pembayaran</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <span class="text-muted small">NIDN - Nama:</span>
+                    <strong id="editRiwayatNidnLabel" class="d-block"></strong>
+                </div>
+                <div class="table-responsive text-nowrap">
+                    <table class="table table-bordered table-sm" style="font-size: 12px;">
+                        <thead>
+                            <tr>
+                                <th>Bulan</th>
+                                <th>Nominal Bersih</th>
+                                <th>Uraian</th>
+                                <th>No Bukti/SP2D</th>
+                                <th>Tanggal</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbodyRiwayat">
+                            <tr><td colspan="6" class="text-center">Memuat data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
             </div>
         </div>
     </div>
@@ -1337,6 +1381,134 @@
                 }
             });
         }
+        // Handler Edit Riwayat
+        const editRiwayatModalEl = document.getElementById('modalEditRiwayat');
+        const editRiwayatModal = editRiwayatModalEl ? new bootstrap.Modal(editRiwayatModalEl) : null;
+        const tbodyRiwayat = document.getElementById('tbodyRiwayat');
+
+        document.querySelectorAll('.btn-edit-riwayat').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const nidn = this.dataset.nidn;
+                const nama = this.dataset.nama;
+                
+                document.getElementById('editRiwayatNidnLabel').textContent = `${nidn} - ${nama}`;
+                tbodyRiwayat.innerHTML = '<tr><td colspan="6" class="text-center">Memuat data...</td></tr>';
+                
+                if (editRiwayatModal) editRiwayatModal.show();
+
+                try {
+                    const token = document.querySelector('meta[name="csrf-token"]')?.content
+                               || document.querySelector('input[name="_token"]')?.value;
+
+                    const response = await fetch("{{ route('admin.kekurangan-bayar.get-riwayat') }}", {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': token,
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({ nidn: nidn }),
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        if (data.data.length === 0) {
+                            tbodyRiwayat.innerHTML = '<tr><td colspan="6" class="text-center">Tidak ada riwayat pembayaran.</td></tr>';
+                            return;
+                        }
+                        
+                        let html = '';
+                        const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+                        
+                        data.data.forEach(r => {
+                            html += `
+                                <tr id="row-riwayat-${r.id}">
+                                    <td class="align-middle text-center">${months[parseInt(r.bulan)-1] || r.bulan}</td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm nominal-riwayat" value="${parseInt(r.bersih)}" data-id="${r.id}" style="width:100px;">
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm uraian-riwayat" value="${r.uraian_pembayaran || ''}" data-id="${r.id}" style="width:150px;">
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm nomor-riwayat" value="${r.nomor || ''}" data-id="${r.id}" style="width:120px;">
+                                    </td>
+                                    <td>
+                                        <input type="date" class="form-control form-control-sm tanggal-riwayat" value="${r.tanggal ? r.tanggal.split(' ')[0] : ''}" data-id="${r.id}" style="width:120px;">
+                                    </td>
+                                    <td class="text-center align-middle">
+                                        <button type="button" class="btn btn-sm btn-success btn-simpan-riwayat py-0 px-2" data-id="${r.id}" title="Simpan Perubahan"><i class="bx bx-save"></i></button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                        tbodyRiwayat.innerHTML = html;
+                        
+                        // Bind Save buttons
+                        document.querySelectorAll('.btn-simpan-riwayat').forEach(btnSave => {
+                            btnSave.addEventListener('click', async function() {
+                                const id = this.dataset.id;
+                                const tr = document.getElementById(`row-riwayat-${id}`);
+                                
+                                const nominal = tr.querySelector('.nominal-riwayat').value;
+                                const uraian = tr.querySelector('.uraian-riwayat').value;
+                                const nomor = tr.querySelector('.nomor-riwayat').value;
+                                const tanggal = tr.querySelector('.tanggal-riwayat').value;
+                                
+                                this.disabled = true;
+                                this.innerHTML = '<i class="bx bx-loader bx-spin"></i>';
+                                
+                                try {
+                                    const resUpdate = await fetch("{{ route('admin.kekurangan-bayar.update-riwayat') }}", {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'X-CSRF-TOKEN': token,
+                                            'Accept': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            id: id,
+                                            nominal: nominal,
+                                            uraian: uraian,
+                                            nomor: nomor,
+                                            tanggal: tanggal
+                                        }),
+                                    });
+                                    
+                                    const datUpdate = await resUpdate.json();
+                                    if (datUpdate.success) {
+                                        if (alertApi) await alertApi.success('Berhasil', 'Data riwayat berhasil diperbarui');
+                                        else alert('Berhasil');
+                                    } else {
+                                        if (alertApi) await alertApi.error('Gagal', datUpdate.message || 'Gagal update riwayat');
+                                        else alert(datUpdate.message || 'Gagal');
+                                    }
+                                } catch (e) {
+                                    console.error(e);
+                                    if (alertApi) await alertApi.error('Error', 'Gagal memproses ke server.');
+                                    else alert('Gagal');
+                                } finally {
+                                    this.disabled = false;
+                                    this.innerHTML = '<i class="bx bx-save"></i>';
+                                }
+                            });
+                        });
+                    } else {
+                        tbodyRiwayat.innerHTML = `<tr><td colspan="6" class="text-center text-danger">${data.message || 'Gagal mengambil data'}</td></tr>`;
+                    }
+                } catch (err) {
+                    console.error('Fetch riwayat error:', err);
+                    tbodyRiwayat.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Gagal terhubung ke server.</td></tr>';
+                }
+            });
+        });
+        
+        editRiwayatModalEl.addEventListener('hidden.bs.modal', function () {
+            // Refresh to show updated data when modal closed
+            window.location.reload();
+        });
+
     });
 </script>
 @endpush

@@ -1520,4 +1520,88 @@ class KekuranganBayarController extends Controller
     }
     return redirect()->route('admin.kekurangan-bayar')->with('success', "Berhasil menghapus {$deleted} rekap.");
   }
+
+  public function getRiwayat(Request $request)
+  {
+      $nidn = $request->input('nidn');
+      $tahun = session('versi', date('Y'));
+
+      if (!$nidn) {
+          return response()->json(['success' => false, 'message' => 'NIDN tidak valid']);
+      }
+
+      $riwayat = DB::table('t_uraian_pembayaran')
+          ->where('nidn', $nidn)
+          ->where('tahun', $tahun)
+          ->orderBy('bulan', 'asc')
+          ->orderBy('id', 'asc')
+          ->get();
+
+      return response()->json([
+          'success' => true,
+          'data' => $riwayat
+      ]);
+  }
+
+  public function updateRiwayat(Request $request)
+  {
+      $id = $request->input('id');
+      $nominal = $request->input('nominal'); // ini nominal bersih
+      $uraian = $request->input('uraian');
+      $nomor = $request->input('nomor');
+      $tanggal = $request->input('tanggal');
+
+      if (!$id) {
+          return response()->json(['success' => false, 'message' => 'ID Riwayat tidak valid']);
+      }
+
+      $riwayat = DB::table('t_uraian_pembayaran')->where('id', $id)->first();
+      if (!$riwayat) {
+          return response()->json(['success' => false, 'message' => 'Data riwayat tidak ditemukan']);
+      }
+
+      $nominalBersih = (float) str_replace(',', '', trim((string) $nominal));
+      if ($nominalBersih < 0) {
+          return response()->json(['success' => false, 'message' => 'Nominal tidak boleh kurang dari 0']);
+      }
+
+      // Ambil transaksi untuk hitung ulang pajak/kotor
+      $transaksi = DB::table('s_transaksi_2')
+          ->where(function ($q) use ($riwayat) {
+              $q->where('NIDN', $riwayat->nidn)->orWhere('NUPTK', $riwayat->nidn);
+          })
+          ->where('Tahun_Versi', $riwayat->tahun)
+          ->first();
+
+      $tarif = 0.0;
+      if ($transaksi) {
+          $jenisKey = trim((string) ($transaksi->Jenis ?? ''));
+          if (strcasecmp($jenisKey, 'PNS') === 0 || str_starts_with(strtoupper($jenisKey), 'PNS') || (str_contains(strtoupper($jenisKey), 'PNS') && !str_contains(strtoupper($jenisKey), 'NON'))) {
+              $jenisKey = 'PNS';
+          } else {
+              $jenisKey = 'NON PNS';
+          }
+          $gol = trim((string) ($transaksi->{'Gol' . $riwayat->bulan} ?? ''));
+          $tarifMap = $this->loadTarifPajakMap();
+          $tarif = (float) (($tarifMap[$jenisKey][$gol] ?? 0) ?: 0);
+      }
+
+      $nominalKotor = $nominalBersih;
+      if ($tarif < 1 && $tarif >= 0) {
+          $nominalKotor = $nominalBersih / (1 - $tarif);
+      }
+      $totalPajak = $nominalKotor * $tarif;
+
+      DB::table('t_uraian_pembayaran')->where('id', $id)->update([
+          'nominal' => round($nominalKotor, 2),
+          'pajak' => round($totalPajak, 2),
+          'bersih' => round($nominalBersih, 2),
+          'uraian_pembayaran' => $uraian,
+          'nomor' => $nomor,
+          'tanggal' => $tanggal,
+          'updated_at' => now()
+      ]);
+
+      return response()->json(['success' => true, 'message' => 'Data riwayat berhasil diupdate']);
+  }
 }

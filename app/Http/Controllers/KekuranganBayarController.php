@@ -717,8 +717,25 @@ class KekuranganBayarController extends Controller
         'k.Tgl_sp2d_1', 'k.Tgl_sp2d_2', 'k.Tgl_sp2d_3', 'k.Tgl_sp2d_4', 'k.Tgl_sp2d_5', 'k.Tgl_sp2d_6', 'k.Tgl_sp2d_7', 'k.Tgl_sp2d_8', 'k.Tgl_sp2d_9', 'k.Tgl_sp2d_10', 'k.Tgl_sp2d_11', 'k.Tgl_sp2d_12'
       );
 
-    $queryKurang = (clone $baseQuery)->whereRaw('(k2.bersih + 0) < 0')->paginate(50, ['*'], 'kurang_page');
-    $queryLebih = (clone $baseQuery)->whereRaw('(k2.bersih + 0) > 0')->paginate(50, ['*'], 'lebih_page');
+    $searchKurang = request('search_kurang');
+    $queryKurangBase = (clone $baseQuery)->whereRaw('(k2.bersih + 0) < 0');
+    if ($searchKurang) {
+        $queryKurangBase->where(function($q) use ($searchKurang) {
+            $q->where('k.NIDN', 'like', '%' . $searchKurang . '%')
+              ->orWhere('k.Nama', 'like', '%' . $searchKurang . '%');
+        });
+    }
+    $queryKurang = $queryKurangBase->paginate(50, ['*'], 'kurang_page')->appends(request()->query());
+
+    $searchLebih = request('search_lebih');
+    $queryLebihBase = (clone $baseQuery)->whereRaw('(k2.bersih + 0) > 0');
+    if ($searchLebih) {
+        $queryLebihBase->where(function($q) use ($searchLebih) {
+            $q->where('k.NIDN', 'like', '%' . $searchLebih . '%')
+              ->orWhere('k.Nama', 'like', '%' . $searchLebih . '%');
+        });
+    }
+    $queryLebih = $queryLebihBase->paginate(50, ['*'], 'lebih_page')->appends(request()->query());
 
     try {
       $tarifMap = $this->loadTarifPajakMap();

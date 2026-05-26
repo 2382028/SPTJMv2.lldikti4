@@ -123,13 +123,21 @@
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Data Kurang Bayar</h5>
-                            <form action="{{ route('admin.kekurangan-bayar.destroy-kurang') }}" method="POST" id="formDestroyKurang" class="m-0">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" class="btn btn-sm btn-danger">
-                                    <span class="tf-icons bx bx-trash"></span>&nbsp; Hapus Kurang Bayar
-                                </button>
-                            </form>
+                            <div class="d-flex align-items-center gap-2">
+                                <form action="" method="GET" class="m-0 d-flex gap-2">
+                                    @if(request('lebih_page')) <input type="hidden" name="lebih_page" value="{{ request('lebih_page') }}"> @endif
+                                    @if(request('search_lebih')) <input type="hidden" name="search_lebih" value="{{ request('search_lebih') }}"> @endif
+                                    <input type="text" name="search_kurang" class="form-control form-control-sm" placeholder="Cari NIDN / Nama..." value="{{ request('search_kurang') }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bx bx-search"></i></button>
+                                </form>
+                                <form action="{{ route('admin.kekurangan-bayar.destroy-kurang') }}" method="POST" id="formDestroyKurang" class="m-0">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <span class="tf-icons bx bx-trash"></span>&nbsp; Hapus Kurang Bayar
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="table-responsive text-nowrap">
@@ -272,13 +280,21 @@
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Data Lebih Bayar</h5>
-                            <form action="{{ route('admin.kekurangan-bayar.destroy-lebih') }}" method="POST" id="formDestroyLebih" class="m-0">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" class="btn btn-sm btn-primary">
-                                    <span class="tf-icons bx bx-trash"></span>&nbsp; Hapus Lebih Bayar
-                                </button>
-                            </form>
+                            <div class="d-flex align-items-center gap-2">
+                                <form action="" method="GET" class="m-0 d-flex gap-2">
+                                    @if(request('kurang_page')) <input type="hidden" name="kurang_page" value="{{ request('kurang_page') }}"> @endif
+                                    @if(request('search_kurang')) <input type="hidden" name="search_kurang" value="{{ request('search_kurang') }}"> @endif
+                                    <input type="text" name="search_lebih" class="form-control form-control-sm" placeholder="Cari NIDN / Nama..." value="{{ request('search_lebih') }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bx bx-search"></i></button>
+                                </form>
+                                <form action="{{ route('admin.kekurangan-bayar.destroy-lebih') }}" method="POST" id="formDestroyLebih" class="m-0">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        <span class="tf-icons bx bx-trash"></span>&nbsp; Hapus Lebih Bayar
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="table-responsive text-nowrap">

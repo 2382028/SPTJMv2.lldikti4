@@ -267,67 +267,67 @@ $months = [
         </tr>
 
         @php
-          $selisihBersihTotalMain = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
-          $isKurangMain = ($selisihBersihTotalMain < 0);
-          $isLebihMain = ($selisihBersihTotalMain > 0);
-          $vKurang = function($k) use ($selisihTotals, $isKurangMain) { return $isKurangMain ? abs((float)($selisihTotals[$k] ?? 0)) : 0; };
-          $vLebih = function($k) use ($selisihTotals, $isLebihMain) { return $isLebihMain ? abs((float)($selisihTotals[$k] ?? 0)) : 0; };
+           // Mengambil selisih asli TANPA dikurangi pembayaran dan tanpa netting
+           $kGrossRow = $summaryOriginal['k_gross'] ?? 0;
+           $kPajakRow = $summaryOriginal['k_pajak'] ?? 0;
+           $kNetRow   = $summaryOriginal['k_net'] ?? 0;
+           
+           $lGrossRow = $summaryOriginal['l_gross'] ?? 0;
+           $lPajakRow = $summaryOriginal['l_pajak'] ?? 0;
+           $lNetRow   = $summaryOriginal['l_net'] ?? 0;
+
+           // Sisa Akhir
+           $kGrossM = $summaryRekap['k_gross'] ?? 0;
+           $kPajakM = $summaryRekap['k_pajak'] ?? 0;
+           $kNetM = $summaryRekap['k_net'] ?? 0;
+           $lGrossM = $summaryRekap['l_gross'] ?? 0;
+           $lPajakM = $summaryRekap['l_pajak'] ?? 0;
+           $lNetM = $summaryRekap['l_net'] ?? 0;
+           
+           $pure_k = $summaryOriginal['pure_k_gross'] ?? 0;
+           $pure_l = $summaryOriginal['pure_l_gross'] ?? 0;
         @endphp
         <tr class="fw-bold" style="background-color: #fff0f0">
           <td colspan="4" class="text-center">Pembayaran Kekurangan</td>
           <td></td>
-          <td class="text-end">{{ number_format($vKurang('selisihTpd'),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vKurang('selisihTkgb'),0,',','.') }}</td>@endif
-          <td class="text-end">{{ number_format($vKurang('selisihPajakTpd'),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vKurang('selisihPajakTkgb'),0,',','.') }}</td>@endif
-          <td class="text-end">{{ number_format($vKurang('selisihBersihTpd'),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vKurang('selisihBersihTkgb'),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($kGrossRow,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
+          <td class="text-end">{{ number_format($kPajakRow,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
+          <td class="text-end">{{ number_format($kNetRow,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
         <tr class="fw-bold" style="background-color: #f0f0ff">
           <td colspan="4" class="text-center">Pengembalian Kelebihan</td>
           <td></td>
-          <td class="text-end">{{ number_format($vLebih('selisihTpd'),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vLebih('selisihTkgb'),0,',','.') }}</td>@endif
-          <td class="text-end">{{ number_format($vLebih('selisihPajakTpd'),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vLebih('selisihPajakTkgb'),0,',','.') }}</td>@endif
-          <td class="text-end">{{ number_format($vLebih('selisihBersihTpd'),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vLebih('selisihBersihTkgb'),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($lGrossRow,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
+          <td class="text-end">{{ number_format($lPajakRow,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
+          <td class="text-end">{{ number_format($lNetRow,0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
 
         @php
-          $riwayatNominalSum = collect($riwayatPembayaran ?? [])->sum('nominal');
-          $riwayatPajakSum = collect($riwayatPembayaran ?? [])->sum('pajak');
-          $riwayatBersihSum = collect($riwayatPembayaran ?? [])->sum('bersih');
-          // Deteksi kasus: selisih < 0 = Kurang Bayar, selisih > 0 = Lebih Bayar
-          $selisihBersihTotal = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
-          $isKurangBayar = ($selisihBersihTotal < 0);
-          if ($isKurangBayar) {
-            // Kurang Bayar: Total Akhir = Jumlah + Total Pembayaran Uraian
-            $totalAkhirKotorTpd = $totalKotorTpd + $riwayatNominalSum;
-            $totalAkhirPajakTpd = $totalPajakTpd + $riwayatPajakSum;
-            $totalAkhirBersihTpd = $totalBersihTpd + $riwayatBersihSum;
-          } else {
-            // Lebih Bayar: Total Akhir = Jumlah - Total Pembayaran Uraian
-            $totalAkhirKotorTpd = $totalKotorTpd - $riwayatNominalSum;
-            $totalAkhirPajakTpd = $totalPajakTpd - $riwayatPajakSum;
-            $totalAkhirBersihTpd = $totalBersihTpd - $riwayatBersihSum;
-          }
-          $totalAkhirKotorTkgb = $totalKotorTkgb;
-          $totalAkhirPajakTkgb = $totalPajakTkgb;
-          $totalAkhirBersihTkgb = $totalBersihTkgb;
-          $totalAkhirGaji = $totalGaji;
+            $jmKotorTpd = $totalKotorTpd + $totalKotorTkgb;
+            $jmPajakTpd = $totalPajakTpd + $totalPajakTkgb;
+            $jmBersihTpd = $totalBersihTpd + $totalBersihTkgb;
+
+            $totalAkhirKotorTpd = $jmKotorTpd + $kGrossM - $lGrossM;
+            $totalAkhirPajakTpd = $jmPajakTpd + $kPajakM - $lPajakM;
+            $totalAkhirBersihTpd = $jmBersihTpd + $kNetM - $lNetM;
         @endphp
         <tr class="fw-bold" style="background-color: #f0fff4;">
           <td colspan="4" class="text-center">Total Akhir</td>
-          <td class="text-end">{{ number_format($totalAkhirGaji,0,',','.') }}</td>
+          <td class="text-end">{{ number_format($totalGaji,0,',','.') }}</td>
           <td class="text-end">{{ number_format($totalAkhirKotorTpd,0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($totalAkhirKotorTkgb,0,',','.') }}</td>@endif
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
           <td class="text-end">{{ number_format($totalAkhirPajakTpd,0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($totalAkhirPajakTkgb,0,',','.') }}</td>@endif
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
           <td class="text-end">{{ number_format($totalAkhirBersihTpd,0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($totalAkhirBersihTkgb,0,',','.') }}</td>@endif
+          @if($hasTkgb)<td class="text-end tkgb-col">0</td>@endif
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
       </tbody>
@@ -384,25 +384,22 @@ $months = [
           <td colspan="8" class="text-center">Tidak ada data riwayat pembayaran</td>
         </tr>
         @endforelse
-        @if(count($riwayatPembayaran ?? []) > 0)
         @php
-          $uraianSelisihNominal = (float)($selisihTotals['selisihTpd'] ?? 0);
-          $uraianSelisihPajak = (float)($selisihTotals['selisihPajakTpd'] ?? 0);
-          $uraianSelisihBersih = (float)($selisihTotals['selisihBersihTpd'] ?? 0);
-          // Deteksi kasus dari selisih utama
-          $selisihBersihTotalUraian = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
-          if ($selisihBersihTotalUraian < 0) {
-            // Kurang Bayar: Total Akhir = Total Pembayaran + Selisih (negatif) → 0
-            $uraianTotalAkhirNominal = $totalUraianNominal + $uraianSelisihNominal;
-            $uraianTotalAkhirPajak = $totalUraianPajak + $uraianSelisihPajak;
-            $uraianTotalAkhirBersih = $totalUraianBersih + $uraianSelisihBersih;
-          } else {
-            // Lebih Bayar: Total Akhir = Selisih - Total Pembayaran → 0
-            // Pajak = 0 karena pajak sudah dipotong saat pembayaran awal, dosen tidak perlu mengembalikan pajak
-            $uraianTotalAkhirNominal = $uraianSelisihNominal - $totalUraianNominal;
-            $uraianTotalAkhirPajak = 0;
-            $uraianTotalAkhirBersih = $uraianSelisihBersih - $totalUraianBersih;
-          }
+           $kGross = $summaryRekap['k_gross'] ?? 0;
+           $kPajak = $summaryRekap['k_pajak'] ?? 0;
+           $kNet = $summaryRekap['k_net'] ?? 0;
+           
+           $lGross = $summaryRekap['l_gross'] ?? 0;
+           $lPajak = $summaryRekap['l_pajak'] ?? 0;
+           $lNet = $summaryRekap['l_net'] ?? 0;
+           
+           $pure_k = $summaryOriginal['pure_k_gross'] ?? 0;
+           $pure_l = $summaryOriginal['pure_l_gross'] ?? 0;
+           $nettingText = ($pure_k > 0 && $pure_l > 0) ? '<br><small class="text-muted fw-normal" style="font-size: 0.85em;">* Hasil kompensasi: Kekurangan Rp' . number_format($pure_k, 0, ',', '.') . ' - Kelebihan Rp' . number_format($pure_l, 0, ',', '.') . '</small>' : '';
+           
+           $totalAkhirGross = $totalKotorTpd + $totalKotorTkgb + $kGross - $lGross;
+           $totalAkhirPajak = $totalPajakTpd + $totalPajakTkgb + $kPajak - $lPajak;
+           $totalAkhirNet = $totalBersihTpd + $totalBersihTkgb + $kNet - $lNet;
         @endphp
         <tr class="fw-bold table-light">
           <td colspan="3" class="text-start">Total Pembayaran</td>
@@ -411,38 +408,27 @@ $months = [
           <td class="text-end">{{ number_format($totalUraianBersih, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
-        @php
-          $isKurangU = ($selisihBersihTotalUraian < 0);
-          $isLebihU = ($selisihBersihTotalUraian > 0);
-          $kNominal = $isKurangU ? abs($uraianSelisihNominal) : 0;
-          $kPajak   = $isKurangU ? abs($uraianSelisihPajak) : 0;
-          $kBersih  = $isKurangU ? abs($uraianSelisihBersih) : 0;
-          $lNominal = $isLebihU ? abs($uraianSelisihNominal) : 0;
-          $lPajak   = $isLebihU ? abs($uraianSelisihPajak) : 0;
-          $lBersih  = $isLebihU ? abs($uraianSelisihBersih) : 0;
-        @endphp
         <tr class="fw-bold" style="background-color: #fff0f0;">
-          <td colspan="3" class="text-start">Pembayaran Kekurangan</td>
-          <td class="text-end">{{ number_format($kNominal, 0, ',', '.') }}</td>
+          <td colspan="3" class="text-start">Pembayaran Kekurangan {!! $kGross > 0 ? $nettingText : '' !!}</td>
+          <td class="text-end">{{ number_format($kGross, 0, ',', '.') }}</td>
           <td class="text-end">{{ number_format($kPajak, 0, ',', '.') }}</td>
-          <td class="text-end">{{ number_format($kBersih, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($kNet, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
         <tr class="fw-bold" style="background-color: #f0f0ff;">
-          <td colspan="3" class="text-start">Pengembalian Kelebihan</td>
-          <td class="text-end">{{ number_format($lNominal, 0, ',', '.') }}</td>
+          <td colspan="3" class="text-start">Pengembalian Kelebihan {!! $lGross > 0 ? $nettingText : '' !!}</td>
+          <td class="text-end">{{ number_format($lGross, 0, ',', '.') }}</td>
           <td class="text-end">{{ number_format($lPajak, 0, ',', '.') }}</td>
-          <td class="text-end">{{ number_format($lBersih, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($lNet, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
         <tr class="fw-bold" style="background-color: #f0fff4;">
           <td colspan="3" class="text-start">Total Akhir</td>
-          <td class="text-end">{{ number_format($uraianTotalAkhirNominal, 0, ',', '.') }}</td>
-          <td class="text-end">{{ number_format($uraianTotalAkhirPajak, 0, ',', '.') }}</td>
-          <td class="text-end">{{ number_format($uraianTotalAkhirBersih, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($totalAkhirGross, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($totalAkhirPajak, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($totalAkhirNet, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
-        @endif
       </tbody>
     </table>
   </div>
@@ -531,26 +517,38 @@ $months = [
             const t=data.totals||{};
             tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="4" class="text-center">Jumlah</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(t.kotorTpd||0)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(t.pajakTpd||0)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(t.bersihTpd||0)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
-            // Pembayaran Kekurangan dan Pengembalian Kelebihan
-            const sl=data.selisihTotals||{};
-            const sbTot = (sl.selisihBersihTpd||0) + (sl.selisihBersihTkgb||0);
-            const isK = sbTot < 0, isL = sbTot > 0;
-            const vK = (k) => isK ? Math.abs(sl[k]||0) : 0;
-            const vL = (k) => isL ? Math.abs(sl[k]||0) : 0;
+            // Pembayaran Kekurangan dan Pengembalian Kelebihan (Nilai Asli)
+            const sumOri = data.summaryOriginal || {};
+            const valKGrRow = sumOri.k_gross || 0;
+            const valKPjRow = sumOri.k_pajak || 0;
+            const valKNeRow = sumOri.k_net || 0;
+            const valLGrRow = sumOri.l_gross || 0;
+            const valLPjRow = sumOri.l_pajak || 0;
+            const valLNeRow = sumOri.l_net || 0;
             
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="4" class="text-center">Pembayaran Kekurangan</td><td></td><td class="text-end">${fmt(vK('selisihTpd'))}</td>${tkc(vK('selisihTkgb'))}<td class="text-end">${fmt(vK('selisihPajakTpd'))}</td>${tkc(vK('selisihPajakTkgb'))}<td class="text-end">${fmt(vK('selisihBersihTpd'))}</td>${tkc(vK('selisihBersihTkgb'))}<td colspan="2"></td><td colspan="2"></td></tr>`;
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0f0ff"><td colspan="4" class="text-center">Pengembalian Kelebihan</td><td></td><td class="text-end">${fmt(vL('selisihTpd'))}</td>${tkc(vL('selisihTkgb'))}<td class="text-end">${fmt(vL('selisihPajakTpd'))}</td>${tkc(vL('selisihPajakTkgb'))}<td class="text-end">${fmt(vL('selisihBersihTpd'))}</td>${tkc(vL('selisihBersihTkgb'))}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            const pureKRow = sumOri.pure_k_gross || 0;
+            const pureLRow = sumOri.pure_l_gross || 0;
+            
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="4" class="text-center">Pembayaran Kekurangan</td><td></td><td class="text-end">${fmt(valKGrRow)}</td>${tkc(0)}<td class="text-end">${fmt(valKPjRow)}</td>${tkc(0)}<td class="text-end">${fmt(valKNeRow)}</td>${tkc(0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0f0ff"><td colspan="4" class="text-center">Pengembalian Kelebihan</td><td></td><td class="text-end">${fmt(valLGrRow)}</td>${tkc(0)}<td class="text-end">${fmt(valLPjRow)}</td>${tkc(0)}<td class="text-end">${fmt(valLNeRow)}</td>${tkc(0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
-            // Total Akhir: Kurang Bayar → Jumlah + Uraian, Lebih Bayar → Jumlah - Uraian
-            const riwayatData2 = data.riwayatPembayaran || [];
-            let riwNom=0, riwPjk=0, riwBrs=0;
-            riwayatData2.forEach(item => { riwNom+=parseFloat(item.nominal||0); riwPjk+=parseFloat(item.pajak||0); riwBrs+=parseFloat(item.bersih||0); });
-            const selisihBersihTotal = (sl.selisihBersihTpd||0) + (sl.selisihBersihTkgb||0);
-            const isKurang = selisihBersihTotal < 0;
-            const taKotorTpd = isKurang ? (t.kotorTpd||0)+riwNom : (t.kotorTpd||0)-riwNom;
-            const taPajakTpd = isKurang ? (t.pajakTpd||0)+riwPjk : (t.pajakTpd||0)-riwPjk;
-            const taBersihTpd = isKurang ? (t.bersihTpd||0)+riwBrs : (t.bersihTpd||0)-riwBrs;
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0fff4"><td colspan="4" class="text-center">Total Akhir</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(taKotorTpd)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(taPajakTpd)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(taBersihTpd)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            // Total Akhir (Sisa)
+            const sumRekap = data.summaryRekap || {};
+            const valKGr = sumRekap.k_gross || 0;
+            const valKPj = sumRekap.k_pajak || 0;
+            const valKNe = sumRekap.k_net || 0;
+            const valLGr = sumRekap.l_gross || 0;
+            const valLPj = sumRekap.l_pajak || 0;
+            const valLNe = sumRekap.l_net || 0;
+
+            const jmKotorTpd = (t.kotorTpd||0) + (t.kotorTkgb||0);
+            const jmPajakTpd = (t.pajakTpd||0) + (t.pajakTkgb||0);
+            const jmBersihTpd = (t.bersihTpd||0) + (t.bersihTkgb||0);
+            
+            const taKotorTpd = jmKotorTpd + valKGr - valLGr;
+            const taPajakTpd = jmPajakTpd + valKPj - valLPj;
+            const taBersihTpd = jmBersihTpd + valKNe - valLNe;
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0fff4"><td colspan="4" class="text-center">Total Akhir</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(taKotorTpd)}</td>${tkc(0)}<td class="text-end">${fmt(taPajakTpd)}</td>${tkc(0)}<td class="text-end">${fmt(taBersihTpd)}</td>${tkc(0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
           }
 
           // UPDATE TABEL KEDUA (URAIAN PEMBAYARAN)
@@ -559,12 +557,18 @@ $months = [
             tbodyRiwayat.innerHTML = '';
             const riwayatData = data.riwayatPembayaran || [];
             
+            let totalUraianBersih = 0;
+            let totalUraianNominal = 0;
+            let totalUraianPajak = 0;
+            
             if (riwayatData.length === 0) {
               tbodyRiwayat.innerHTML = '<tr><td colspan="8" class="text-center">Tidak ada data riwayat pembayaran</td></tr>';
             } else {
-              let totalUraianBersih = 0;
               riwayatData.forEach((item, index) => {
                 totalUraianBersih += parseFloat(item.bersih || 0);
+                totalUraianNominal += parseFloat(item.nominal || 0);
+                totalUraianPajak += parseFloat(item.pajak || 0);
+                
                 const tr = document.createElement('tr');
                 
                 let tglFormat = '-';
@@ -593,18 +597,31 @@ $months = [
                 `;
                 tbodyRiwayat.appendChild(tr);
               });
+            }
 
-              let totalUraianNominal = 0;
-              let totalUraianPajak = 0;
-              riwayatData.forEach(item => {
-                totalUraianNominal += parseFloat(item.nominal || 0);
-                totalUraianPajak += parseFloat(item.pajak || 0);
-              });
+              const slU = data.summaryRekap || {};
+              const kGross = slU.k_gross || 0;
+              const kPajak = slU.k_pajak || 0;
+              const kNet = slU.k_net || 0;
+              const lGross = slU.l_gross || 0;
+              const lPajak = slU.l_pajak || 0;
+              const lNet = slU.l_net || 0;
+              
+              const sumOriU = data.summaryOriginal || {};
+              const pureK = sumOriU.pure_k_gross || 0;
+              const pureL = sumOriU.pure_l_gross || 0;
+              const nettingText = (pureK > 0 && pureL > 0) ? `<br><small class="text-muted fw-normal" style="font-size: 0.85em;">* Hasil kompensasi: Kekurangan Rp${fmt(pureK)} - Kelebihan Rp${fmt(pureL)}</small>` : '';
 
-              const slU = data.selisihTotals || {};
-              const uraianSelisihNom = slU.selisihTpd || 0;
-              const uraianSelisihPjk = slU.selisihPajakTpd || 0;
-              const uraianSelisihBrs = slU.selisihBersihTpd || 0;
+              const sumKotorTpd = (data.kotorTpd || []).reduce((a,b)=>a+parseFloat(b||0), 0);
+              const sumKotorTkgb = (data.kotorTkgb || []).reduce((a,b)=>a+parseFloat(b||0), 0);
+              const sumPajakTpd = (data.pajakTpd || []).reduce((a,b)=>a+parseFloat(b||0), 0);
+              const sumPajakTkgb = (data.pajakTkgb || []).reduce((a,b)=>a+parseFloat(b||0), 0);
+              const sumBersihTpd = (data.bersihTpd || []).reduce((a,b)=>a+parseFloat(b||0), 0);
+              const sumBersihTkgb = (data.bersihTkgb || []).reduce((a,b)=>a+parseFloat(b||0), 0);
+
+              const totalAkhirGross = sumKotorTpd + sumKotorTkgb + kGross - lGross;
+              const totalAkhirPajak = sumPajakTpd + sumPajakTkgb + kPajak - lPajak;
+              const totalAkhirNet = sumBersihTpd + sumBersihTkgb + kNet - lNet;
 
               // Row: Total Pembayaran
               const trTotal = document.createElement('tr');
@@ -618,19 +635,15 @@ $months = [
               `;
               tbodyRiwayat.appendChild(trTotal);
 
-              const selisihBersihTotalU = (slU.selisihBersihTpd||0) + (slU.selisihBersihTkgb||0);
-              const isKurangU = selisihBersihTotalU < 0;
-              const isLebihU = selisihBersihTotalU > 0;
-
               // Row: Pembayaran Kekurangan
               const trKurang = document.createElement('tr');
               trKurang.className = 'fw-bold';
               trKurang.style.backgroundColor = '#fff0f0';
               trKurang.innerHTML = `
-                <td colspan="3" class="text-start">Pembayaran Kekurangan</td>
-                <td class="text-end">${fmt(isKurangU ? Math.abs(uraianSelisihNom) : 0)}</td>
-                <td class="text-end">${fmt(isKurangU ? Math.abs(uraianSelisihPjk) : 0)}</td>
-                <td class="text-end">${fmt(isKurangU ? Math.abs(uraianSelisihBrs) : 0)}</td>
+                <td colspan="3" class="text-start">Pembayaran Kekurangan ${kGross > 0 ? nettingText : ''}</td>
+                <td class="text-end">${fmt(kGross)}</td>
+                <td class="text-end">${fmt(kPajak)}</td>
+                <td class="text-end">${fmt(kNet)}</td>
                 <td colspan="2"></td>
               `;
               tbodyRiwayat.appendChild(trKurang);
@@ -640,25 +653,26 @@ $months = [
               trLebih.className = 'fw-bold';
               trLebih.style.backgroundColor = '#f0f0ff';
               trLebih.innerHTML = `
-                <td colspan="3" class="text-start">Pengembalian Kelebihan</td>
-                <td class="text-end">${fmt(isLebihU ? Math.abs(uraianSelisihNom) : 0)}</td>
-                <td class="text-end">${fmt(isLebihU ? Math.abs(uraianSelisihPjk) : 0)}</td>
-                <td class="text-end">${fmt(isLebihU ? Math.abs(uraianSelisihBrs) : 0)}</td>
+                <td colspan="3" class="text-start">Pengembalian Kelebihan ${lGross > 0 ? nettingText : ''}</td>
+                <td class="text-end">${fmt(lGross)}</td>
+                <td class="text-end">${fmt(lPajak)}</td>
+                <td class="text-end">${fmt(lNet)}</td>
                 <td colspan="2"></td>
               `;
               tbodyRiwayat.appendChild(trLebih);
+
+              // Row: Total Akhir
               const trAkhir = document.createElement('tr');
               trAkhir.className = 'fw-bold';
               trAkhir.style.backgroundColor = '#f0fff4';
               trAkhir.innerHTML = `
                 <td colspan="3" class="text-start">Total Akhir</td>
-                <td class="text-end">${fmt(isKurangU ? totalUraianNominal + uraianSelisihNom : uraianSelisihNom - totalUraianNominal)}</td>
-                <td class="text-end">${fmt(isKurangU ? totalUraianPajak + uraianSelisihPjk : 0)}</td>
-                <td class="text-end">${fmt(isKurangU ? totalUraianBersih + uraianSelisihBrs : uraianSelisihBrs - totalUraianBersih)}</td>
+                <td class="text-end">${fmt(totalAkhirGross)}</td>
+                <td class="text-end">${fmt(totalAkhirPajak)}</td>
+                <td class="text-end">${fmt(totalAkhirNet)}</td>
                 <td colspan="2"></td>
               `;
               tbodyRiwayat.appendChild(trAkhir);
-            }
           }
 
         }).catch(err=>console.error(err));

@@ -299,6 +299,12 @@ class MonitoringPembayaranController extends Controller
       }
     } catch (\Throwable $e) { /* table might not exist yet */ }
 
+    $remainingKurangGross = 0; $remainingKurangPajak = 0; $remainingKurangNet = 0;
+    $remainingLebihGross = 0; $remainingLebihPajak = 0; $remainingLebihNet = 0;
+
+    $asliKurangGross = 0; $asliKurangPajak = 0; $asliKurangNet = 0;
+    $asliLebihGross = 0; $asliLebihPajak = 0; $asliLebihNet = 0;
+
     for ($i = 0; $i < 12; $i++) {
       $bulanNum = $i + 1;
 
@@ -328,6 +334,8 @@ class MonitoringPembayaranController extends Controller
       // Selisih = expected gross (kotor) - actual paid (gaji)
       // Matches SelisihBayar logic: compares DB TPD+TKGB vs actual Gaji
       $selisihBulan = ($hasData && $hasSp2d) ? ($kotor - $gaji) : 0;
+      $originalSelisihBulan = $selisihBulan;
+      $originalSelisihBulanan[] = (float) $originalSelisihBulan;
 
       // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan, kurangi selisih dengan jumlah yang dibayar (cicilan)
       $isResolved = isset($resolvedMonths[$bulanNum]);
@@ -349,7 +357,24 @@ class MonitoringPembayaranController extends Controller
         }
       }
 
-      $selisihBulanan[] = (float) $selisihBulan;
+      $selisihBulanan[] = (float) $originalSelisihBulan;
+      
+      $tarifM = $kotor > 0 ? ($pajak / $kotor) : 0;
+      if ($selisihBulan < -0.01) {
+          $gross = abs($selisihBulan);
+          $pjk = $gross * $tarifM;
+          $net = $gross - $pjk;
+          $remainingKurangGross += $gross;
+          $remainingKurangPajak += $pjk;
+          $remainingKurangNet += $net;
+      } elseif ($selisihBulan > 0.01) {
+          $gross = abs($selisihBulan);
+          $pjk = $gross * $tarifM;
+          $net = $gross - $pjk;
+          $remainingLebihGross += $gross;
+          $remainingLebihPajak += $pjk;
+          $remainingLebihNet += $net;
+      }
 
       // Status logic
       if ($isResolved && $hasSp2d && $hasData && abs($selisihBulan) < 0.01) {
@@ -406,6 +431,69 @@ class MonitoringPembayaranController extends Controller
       $riwayatPembayaran = collect();
     }
 
+    // Netting SISA (Setelah Cicilan)
+    $totalSisaGross = array_sum($selisihBulanan);
+    $sisaKurangGross = 0; $sisaKurangPajak = 0; $sisaKurangNet = 0;
+    $sisaLebihGross = 0; $sisaLebihPajak = 0; $sisaLebihNet = 0;
+    
+    // Calculate global tarif based on total
+    $totalPajakAll = array_sum($pajakTpd) + array_sum($pajakTkgb);
+    $totalKotorAll = array_sum($kotorTpd) + array_sum($kotorTkgb);
+    $globalTarif = $totalKotorAll > 0 ? ($totalPajakAll / $totalKotorAll) : 0;
+
+    if ($totalSisaGross > 0.01) { // Lebih Bayar
+        $sisaLebihGross = $totalSisaGross;
+        $sisaLebihPajak = $totalSisaGross * $globalTarif;
+        $sisaLebihNet = $totalSisaGross - $sisaLebihPajak;
+    } elseif ($totalSisaGross < -0.01) { // Kurang Bayar
+        $sisaKurangGross = abs($totalSisaGross);
+        $sisaKurangPajak = abs($totalSisaGross) * $globalTarif;
+        $sisaKurangNet = abs($totalSisaGross) - $sisaKurangPajak;
+    }
+
+    $summaryRekap = [
+        'k_gross' => $sisaKurangGross,
+        'k_pajak' => $sisaKurangPajak,
+        'k_net' => $sisaKurangNet,
+        'l_gross' => $sisaLebihGross,
+        'l_pajak' => $sisaLebihPajak,
+        'l_net' => $sisaLebihNet,
+    ];
+
+    // Netting ASLI (Sebelum Cicilan)
+    $totalAsliGross = array_sum($originalSelisihBulanan ?? []);
+    $asliKurangGross = 0; $asliKurangPajak = 0; $asliKurangNet = 0;
+    $asliLebihGross = 0; $asliLebihPajak = 0; $asliLebihNet = 0;
+
+    if ($totalAsliGross > 0.01) { // Lebih Bayar
+        $asliLebihGross = $totalAsliGross;
+        $asliLebihPajak = $totalAsliGross * $globalTarif;
+        $asliLebihNet = $totalAsliGross - $asliLebihPajak;
+    } elseif ($totalAsliGross < -0.01) { // Kurang Bayar
+        $asliKurangGross = abs($totalAsliGross);
+        $asliKurangPajak = abs($totalAsliGross) * $globalTarif;
+        $asliKurangNet = abs($totalAsliGross) - $asliKurangPajak;
+    }
+    
+    // Kalkulasi Total Kotor Kurang dan Lebih untuk keperluan label penjelasan di UI
+    $pureKurangGross = 0;
+    $pureLebihGross = 0;
+    foreach ($originalSelisihBulanan ?? [] as $val) {
+        if ($val > 0.01) $pureLebihGross += $val;
+        elseif ($val < -0.01) $pureKurangGross += abs($val);
+    }
+
+    $summaryOriginal = [
+        'k_gross' => $asliKurangGross,
+        'k_pajak' => $asliKurangPajak,
+        'k_net' => $asliKurangNet,
+        'l_gross' => $asliLebihGross,
+        'l_pajak' => $asliLebihPajak,
+        'l_net' => $asliLebihNet,
+        'pure_k_gross' => $pureKurangGross,
+        'pure_l_gross' => $pureLebihGross,
+    ];
+
     return view(
       'admin.monitoring-pembayaran',
       compact(
@@ -432,6 +520,8 @@ class MonitoringPembayaranController extends Controller
         'selisihBulanan',
         'statusBulanan',
         'summary',
+        'summaryRekap',
+        'summaryOriginal',
         'riwayatPembayaran',
       )
     );
@@ -559,6 +649,11 @@ class MonitoringPembayaranController extends Controller
     $statusBulanan = [];
     $summaryKewajiban = 0.0;
     $summaryDibayar = 0.0;
+    $remainingKurangGross = 0; $remainingKurangPajak = 0; $remainingKurangNet = 0;
+    $remainingLebihGross = 0; $remainingLebihPajak = 0; $remainingLebihNet = 0;
+    
+    $asliKurangGross = 0; $asliKurangPajak = 0; $asliKurangNet = 0;
+    $asliLebihGross = 0; $asliLebihPajak = 0; $asliLebihNet = 0;
 
     // Cek bulan-bulan yang sudah diproses SP2D kekurangan/kelebihan
     $resolvedMonths = [];
@@ -610,6 +705,10 @@ class MonitoringPembayaranController extends Controller
 
       // Selisih = expected gross (kotor) - actual paid (gaji)
       $selisihBulan = ($hasData && $hasSp2d) ? ($kotor - $gaji) : 0;
+      $originalSelisihBulan = $selisihBulan;
+      $originalSelisihBulanan[] = (float) $originalSelisihBulan;
+
+      $tarif = $kotor > 0 ? ($pajak / $kotor) : 0;
 
       // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan, kurangi selisih dengan jumlah yang dibayar (cicilan)
       $isResolved = isset($resolvedMonths[$bulanNum]);
@@ -631,7 +730,24 @@ class MonitoringPembayaranController extends Controller
         }
       }
 
-      $selisihBulanan[] = (float) $selisihBulan;
+      $selisihBulanan[] = (float) $originalSelisihBulan;
+      
+      $tarifM = $kotor > 0 ? ($pajak / $kotor) : 0;
+      if ($selisihBulan < -0.01) {
+          $gross = abs($selisihBulan);
+          $pjk = $gross * $tarifM;
+          $net = $gross - $pjk;
+          $remainingKurangGross += $gross;
+          $remainingKurangPajak += $pjk;
+          $remainingKurangNet += $net;
+      } elseif ($selisihBulan > 0.01) {
+          $gross = abs($selisihBulan);
+          $pjk = $gross * $tarifM;
+          $net = $gross - $pjk;
+          $remainingLebihGross += $gross;
+          $remainingLebihPajak += $pjk;
+          $remainingLebihNet += $net;
+      }
 
       if ($isResolved && $hasSp2d && $hasData && abs($selisihBulan) < 0.01) {
         $statusBulanan[] = 'selesai';
@@ -639,7 +755,7 @@ class MonitoringPembayaranController extends Controller
         $statusBulanan[] = null;
       } elseif ($hasData && !$hasSp2d) {
         $statusBulanan[] = 'usulan';
-      } elseif ($hasSp2d && $bersih == 0 && $kotor > 0) {
+      } elseif ($sp2dNo !== '-' && $bersih == 0 && $kotor > 0) {
         $statusBulanan[] = 'proses';
       } elseif ($hasSp2d && $selisihBulan < 0) {
         $statusBulanan[] = 'kurang';
@@ -658,6 +774,69 @@ class MonitoringPembayaranController extends Controller
       'totalKewajiban' => $summaryKewajiban,
       'totalDibayar' => $summaryDibayar,
       'totalSelisih' => array_sum($selisihBulanan),
+    ];
+    
+    // Netting SISA (Setelah Cicilan)
+    $totalSisaGross = array_sum($selisihBulanan);
+    $sisaKurangGross = 0; $sisaKurangPajak = 0; $sisaKurangNet = 0;
+    $sisaLebihGross = 0; $sisaLebihPajak = 0; $sisaLebihNet = 0;
+    
+    // Calculate global tarif based on total
+    $totalPajakAll = array_sum($pajakTpd) + array_sum($pajakTkgb);
+    $totalKotorAll = array_sum($kotorTpd) + array_sum($kotorTkgb);
+    $globalTarif = $totalKotorAll > 0 ? ($totalPajakAll / $totalKotorAll) : 0;
+
+    if ($totalSisaGross > 0.01) { // Lebih Bayar
+        $sisaLebihGross = $totalSisaGross;
+        $sisaLebihPajak = $totalSisaGross * $globalTarif;
+        $sisaLebihNet = $totalSisaGross - $sisaLebihPajak;
+    } elseif ($totalSisaGross < -0.01) { // Kurang Bayar
+        $sisaKurangGross = abs($totalSisaGross);
+        $sisaKurangPajak = abs($totalSisaGross) * $globalTarif;
+        $sisaKurangNet = abs($totalSisaGross) - $sisaKurangPajak;
+    }
+
+    $summaryRekap = [
+        'k_gross' => $sisaKurangGross,
+        'k_pajak' => $sisaKurangPajak,
+        'k_net' => $sisaKurangNet,
+        'l_gross' => $sisaLebihGross,
+        'l_pajak' => $sisaLebihPajak,
+        'l_net' => $sisaLebihNet,
+    ];
+
+    // Netting ASLI (Sebelum Cicilan)
+    $totalAsliGross = array_sum($originalSelisihBulanan ?? []);
+    $asliKurangGross = 0; $asliKurangPajak = 0; $asliKurangNet = 0;
+    $asliLebihGross = 0; $asliLebihPajak = 0; $asliLebihNet = 0;
+
+    if ($totalAsliGross > 0.01) { // Lebih Bayar
+        $asliLebihGross = $totalAsliGross;
+        $asliLebihPajak = $totalAsliGross * $globalTarif;
+        $asliLebihNet = $totalAsliGross - $asliLebihPajak;
+    } elseif ($totalAsliGross < -0.01) { // Kurang Bayar
+        $asliKurangGross = abs($totalAsliGross);
+        $asliKurangPajak = abs($totalAsliGross) * $globalTarif;
+        $asliKurangNet = abs($totalAsliGross) - $asliKurangPajak;
+    }
+    
+    // Kalkulasi Total Kotor Kurang dan Lebih untuk keperluan label penjelasan di UI
+    $pureKurangGross = 0;
+    $pureLebihGross = 0;
+    foreach ($originalSelisihBulanan ?? [] as $val) {
+        if ($val > 0.01) $pureLebihGross += $val;
+        elseif ($val < -0.01) $pureKurangGross += abs($val);
+    }
+    
+    $summaryOriginal = [
+        'k_gross' => $asliKurangGross,
+        'k_pajak' => $asliKurangPajak,
+        'k_net' => $asliKurangNet,
+        'l_gross' => $asliLebihGross,
+        'l_pajak' => $asliLebihPajak,
+        'l_net' => $asliLebihNet,
+        'pure_k_gross' => $pureKurangGross,
+        'pure_l_gross' => $pureLebihGross,
     ];
 
     // Query uraian pembayaran dari t_uraian_pembayaran
@@ -697,6 +876,8 @@ class MonitoringPembayaranController extends Controller
       'selisihBulanan' => $selisihBulanan,
       'statusBulanan' => $statusBulanan,
       'summary' => $summaryData,
+      'summaryRekap' => $summaryRekap,
+      'summaryOriginal' => $summaryOriginal,
       'riwayatPembayaran' => $riwayatPembayaran,
     ]);
   }

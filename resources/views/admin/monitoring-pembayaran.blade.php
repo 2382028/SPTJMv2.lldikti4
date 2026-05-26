@@ -296,6 +296,20 @@ $months = [
             $totalAkhirPajakTpd = $totalPajakTpd - $riwayatPajakSum;
             $totalAkhirBersihTpd = $totalBersihTpd - $riwayatBersihSum;
           }
+          // Deteksi kasus: selisih < 0 = Kurang Bayar, selisih > 0 = Lebih Bayar
+          $selisihBersihTotal = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
+          $isKurangBayar = ($selisihBersihTotal < 0);
+          if ($isKurangBayar) {
+            // Kurang Bayar: Total Akhir = Jumlah + Total Pembayaran Uraian
+            $totalAkhirKotorTpd = $totalKotorTpd + $riwayatNominalSum;
+            $totalAkhirPajakTpd = $totalPajakTpd + $riwayatPajakSum;
+            $totalAkhirBersihTpd = $totalBersihTpd + $riwayatBersihSum;
+          } else {
+            // Lebih Bayar: Total Akhir = Jumlah - Total Pembayaran Uraian
+            $totalAkhirKotorTpd = $totalKotorTpd - $riwayatNominalSum;
+            $totalAkhirPajakTpd = $totalPajakTpd - $riwayatPajakSum;
+            $totalAkhirBersihTpd = $totalBersihTpd - $riwayatBersihSum;
+          }
           $totalAkhirKotorTkgb = $totalKotorTkgb;
           $totalAkhirPajakTkgb = $totalPajakTkgb;
           $totalAkhirBersihTkgb = $totalBersihTkgb;
@@ -371,6 +385,20 @@ $months = [
           $uraianSelisihNominal = (float)($selisihTotals['selisihTpd'] ?? 0);
           $uraianSelisihPajak = (float)($selisihTotals['selisihPajakTpd'] ?? 0);
           $uraianSelisihBersih = (float)($selisihTotals['selisihBersihTpd'] ?? 0);
+          // Deteksi kasus dari selisih utama
+          $selisihBersihTotalUraian = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
+          if ($selisihBersihTotalUraian < 0) {
+            // Kurang Bayar: Total Akhir = Total Pembayaran + Selisih (negatif) → 0
+            $uraianTotalAkhirNominal = $totalUraianNominal + $uraianSelisihNominal;
+            $uraianTotalAkhirPajak = $totalUraianPajak + $uraianSelisihPajak;
+            $uraianTotalAkhirBersih = $totalUraianBersih + $uraianSelisihBersih;
+          } else {
+            // Lebih Bayar: Total Akhir = Selisih - Total Pembayaran → 0
+            // Pajak = 0 karena pajak sudah dipotong saat pembayaran awal, dosen tidak perlu mengembalikan pajak
+            $uraianTotalAkhirNominal = $uraianSelisihNominal - $totalUraianNominal;
+            $uraianTotalAkhirPajak = 0;
+            $uraianTotalAkhirBersih = $uraianSelisihBersih - $totalUraianBersih;
+          }
           // Deteksi kasus dari selisih utama
           $selisihBersihTotalUraian = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
           if ($selisihBersihTotalUraian < 0) {
@@ -593,11 +621,17 @@ $months = [
               // Row: Total Akhir: Kurang → Pembayaran + Selisih, Lebih → Selisih - Pembayaran
               const selisihBersihTotalU = (slU.selisihBersihTpd||0) + (slU.selisihBersihTkgb||0);
               const isKurangU = selisihBersihTotalU < 0;
+              // Row: Total Akhir: Kurang → Pembayaran + Selisih, Lebih → Selisih - Pembayaran
+              const selisihBersihTotalU = (slU.selisihBersihTpd||0) + (slU.selisihBersihTkgb||0);
+              const isKurangU = selisihBersihTotalU < 0;
               const trAkhir = document.createElement('tr');
               trAkhir.className = 'fw-bold';
               trAkhir.style.backgroundColor = '#f0fff4';
               trAkhir.innerHTML = `
                 <td colspan="3" class="text-start">Total Akhir</td>
+                <td class="text-end">${fmt(isKurangU ? totalUraianNominal + uraianSelisihNom : uraianSelisihNom - totalUraianNominal)}</td>
+                <td class="text-end">${fmt(isKurangU ? totalUraianPajak + uraianSelisihPjk : 0)}</td>
+                <td class="text-end">${fmt(isKurangU ? totalUraianBersih + uraianSelisihBrs : uraianSelisihBrs - totalUraianBersih)}</td>
                 <td class="text-end">${fmt(isKurangU ? totalUraianNominal + uraianSelisihNom : uraianSelisihNom - totalUraianNominal)}</td>
                 <td class="text-end">${fmt(isKurangU ? totalUraianPajak + uraianSelisihPjk : 0)}</td>
                 <td class="text-end">${fmt(isKurangU ? totalUraianBersih + uraianSelisihBrs : uraianSelisihBrs - totalUraianBersih)}</td>

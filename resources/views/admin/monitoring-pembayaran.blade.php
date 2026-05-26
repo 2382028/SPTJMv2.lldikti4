@@ -456,24 +456,25 @@ $months = [
           const si=document.getElementById('sum-selisih-icon');
           if(si){si.className='avatar-initial rounded '+((sm.totalSelisih||0)==0?'bg-label-success':'bg-label-danger')+' me-2';}
 
-          const hasTkgb=(data.kotorTkgb||[]).some(v=>v!=0)||(data.pajakTkgb||[]).some(v=>v!=0)||(data.bersihTkgb||[]).some(v=>v!=0);
+          const sumTkgb=[...(data.kotorTkgb||[]),...(data.pajakTkgb||[]),...(data.bersihTkgb||[])].reduce((a,b)=>a+Number(b),0);
+          const hasTkgb=sumTkgb!=0;
           const tbl=document.getElementById('mp-table');
           if(tbl) tbl.dataset.hasTkgb=hasTkgb?'1':'0';
 
           const thead=tbl?.querySelector('thead');
           if(thead){
             const nc=hasTkgb?6:3;
-            thead.innerHTML=`<tr><th rowspan="2" class="text-center">Tahun</th><th rowspan="2" class="text-center">Bulan</th><th rowspan="2" class="text-center">Kode Usulan</th><th rowspan="2" class="text-center">Gol/MK</th><th rowspan="2" class="text-center">Gaji</th><th colspan="${nc}" class="text-center">Nominal</th><th rowspan="2" class="text-center">NO SP2D</th><th rowspan="2" class="text-center">TGL SP2D</th><th rowspan="2" class="text-center">Selisih</th><th rowspan="2" class="text-center">Status</th></tr><tr><th class="text-center">Kotor TPD</th>${hasTkgb?'<th class="text-center">Kotor TKGB</th>':''}<th class="text-center">Pajak TPD</th>${hasTkgb?'<th class="text-center">Pajak TKGB</th>':''}<th class="text-center">Bersih TPD</th>${hasTkgb?'<th class="text-center">Bersih TKGB</th>':''}</tr>`;
+            thead.innerHTML=`<tr><th rowspan="2" class="text-center">Tahun</th><th rowspan="2" class="text-center">Bulan</th><th rowspan="2" class="text-center">Kode Usulan</th><th rowspan="2" class="text-center">Gol/MK</th><th rowspan="2" class="text-center">Gaji</th><th colspan="${nc}" class="text-center">Nominal</th><th rowspan="2" class="text-center">NO SP2D</th><th rowspan="2" class="text-center">TGL SP2D</th><th rowspan="2" class="text-center">Selisih</th><th rowspan="2" class="text-center">Status</th></tr><tr><th class="text-center">Kotor TPD</th>${hasTkgb?'<th class="text-center tkgb-col">Kotor TKGB</th>':''}<th class="text-center">Pajak TPD</th>${hasTkgb?'<th class="text-center tkgb-col">Pajak TKGB</th>':''}<th class="text-center">Bersih TPD</th>${hasTkgb?'<th class="text-center tkgb-col">Bersih TKGB</th>':''}</tr>`;
           }
 
           const tbody=tbl?.querySelector('tbody'); 
           if(tbody) {
             tbody.innerHTML='';
             const months=data.months||[], sb=data.selisihBulanan||[], stb=data.statusBulanan||[];
-            const tkc=(v)=>hasTkgb?`<td class="text-end">${fmt(v)}</td>`:'';
+            const tkc=(v)=>hasTkgb?`<td class="text-end tkgb-col">${fmt(v)}</td>`:'';
 
             for(let i=0;i<months.length;i++){
-              const s=sb[i]||0, st=stb[i], sc=s<0?'text-danger fw-bold':(s>0?'fw-bold':'text-success fw-bold'), ss=s>0?'color:#7c3aed!important;':'';
+              const s=sb[i]||0, st=stb[i], sc=s<0?'text-end text-danger fw-bold':(s>0?'text-end text-purple fw-bold':'text-end text-success fw-bold'), ss=s>0?'color:#7c3aed!important;':'';
               const pfx=s<0?'-':(s>0?'+':'');
               let stH='-'; if(st&&statusCfg[st]) stH=`<span class="badge ${statusCfg[st][0]}" style="font-size:10px">${statusCfg[st][1]}</span>`;
               
@@ -488,7 +489,7 @@ $months = [
                   }
               }
 
-              tbody.innerHTML+=`<tr><td class="text-center">${data.selectedYear||'-'}</td><td>${months[i]}</td><td class="text-center">${data.kodeUsulanBulanan[i]??'-'}</td><td class="text-center">${data.golonganBulanan[i]??'-'} - ${data.tahunBulanan[i]??'-'}</td><td class="text-end">${fmt(data.gajiBulanan[i]??0)}</td><td class="text-end">${fmt(data.kotorTpd[i]??0)}</td>${tkc(data.kotorTkgb[i]??0)}<td class="text-end">${fmt(data.pajakTpd[i]??0)}</td>${tkc(data.pajakTkgb[i]??0)}<td class="text-end">${fmt(data.bersihTpd[i]??0)}</td>${tkc(data.bersihTkgb[i]??0)}<td class="text-center" style="font-size:11px">${data.noSp2d[i]??'-'}</td><td class="text-center" style="font-size:11px">${tglMain}</td><td class="${sc}" style="${ss}text-align:right">${pfx}${fmt(Math.abs(s))}</td><td class="text-center">${stH}</td></tr>`;
+              tbody.innerHTML+=`<tr><td class="text-center">${data.selectedYear||'-'}</td><td>${months[i]}</td><td class="text-center">${data.kodeUsulanBulanan[i]??'-'}</td><td class="text-center">${data.golonganBulanan[i]??'-'} - ${data.tahunBulanan[i]??'-'}</td><td class="text-end">${fmt(data.gajiBulanan[i]??0)}</td><td class="text-end">${fmt(data.kotorTpd[i]??0)}</td>${tkc(data.kotorTkgb[i]??0)}<td class="text-end">${fmt(data.pajakTpd[i]??0)}</td>${tkc(data.pajakTkgb[i]??0)}<td class="text-end">${fmt(data.bersihTpd[i]??0)}</td>${tkc(data.bersihTkgb[i]??0)}<td class="text-center" style="font-size:11px">${data.noSp2d[i]??'-'}</td><td class="text-center" style="font-size:11px">${tglMain}</td><td class="${sc}" style="${ss}">${pfx}${fmt(Math.abs(s))}</td><td class="text-center">${stH}</td></tr>`;
             }
 
             // Totals
@@ -497,7 +498,7 @@ $months = [
 
             // Selisih totals (soft red)
             const sl=data.selisihTotals||{};
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="4" class="text-center">Jumlah Selisih Bayar</td><td></td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
             // Total Akhir: Kurang Bayar → Jumlah + Uraian, Lebih Bayar → Jumlah - Uraian
             const riwayatData2 = data.riwayatPembayaran || [];

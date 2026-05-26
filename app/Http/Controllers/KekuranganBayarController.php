@@ -1054,6 +1054,7 @@ class KekuranganBayarController extends Controller
         $rekapCreated++;
       }
     } catch (\Throwable $e) {
+      \Illuminate\Support\Facades\Log::error('Gagal membuat file excel di proses(): ' . $e->getMessage() . "\n" . $e->getTraceAsString());
       return redirect()->route('admin.kekurangan-bayar')->with('success', 'Proses hitung berhasil, namun gagal membuat file rekap.');
     }
 

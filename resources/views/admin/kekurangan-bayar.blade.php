@@ -24,7 +24,14 @@
     
     $rekapKurangRows = collect($rekapKurang ?? []);
     $rekapLebihRows = collect($rekapLebih ?? []);
-    $allRekap = $rekapKurangRows->merge($rekapLebihRows)->sortByDesc('created_at');
+    // Sorting: KURANG di atas, LEBIH di bawah, lalu urutkan by created_at desc
+    $allRekap = $rekapKurangRows->merge($rekapLebihRows)->sort(function($a, $b) {
+        $aIsKurang = strpos(strtolower($a->periode ?? ''), 'kurang') !== false;
+        $bIsKurang = strpos(strtolower($b->periode ?? ''), 'kurang') !== false;
+        if ($aIsKurang && !$bIsKurang) return -1;
+        if (!$aIsKurang && $bIsKurang) return 1;
+        return $a->created_at < $b->created_at ? 1 : -1;
+    })->values();
 
     $flashInfo = $flashInfo ?? null;
 
@@ -474,25 +481,21 @@
                                                     <a href="{{ $u }}" class="btn btn-sm btn-success py-0 px-2" target="_blank" title="Download XLSX" style="font-size:11px;">XLSX</a>
                                                     @endif
 
-                                                    @if($sudahSp2d)
-                                                        @php
-                                                            $lbl = $isLebihRekap ? 'NTPN' : 'SP2D';
-                                                        @endphp
-                                                        <span class="badge bg-label-info d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="{{ $lbl }}: {{ $rekap->sp2d }}">
-                                                            <i class="bx bx-check-circle me-1"></i> {{ $lbl }}
-                                                        </span>
-                                                    @else
-                                                        @php
-                                                            $lbl = $isLebihRekap ? 'NTPN' : 'SP2D';
-                                                        @endphp
-                                                        <button type="button"
-                                                            class="btn btn-sm btn-primary btn-aksi-sp2d py-0 px-2"
-                                                            data-rekap-id="{{ $rekap->id }}"
-                                                            data-rekap-periode="{{ $rekap->periode }}"
-                                                            title="Input No {{ $lbl }}"
-                                                            style="font-size:11px;">
-                                                            <i class="bx bx-edit-alt"></i> Proses
-                                                        </button>
+                                                    @if(!$isLebihRekap)
+                                                        @if($sudahSp2d)
+                                                            <span class="badge bg-label-info d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="SP2D: {{ $rekap->sp2d }}">
+                                                                <i class="bx bx-check-circle me-1"></i> SP2D
+                                                            </span>
+                                                        @else
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-primary btn-aksi-sp2d py-0 px-2"
+                                                                data-rekap-id="{{ $rekap->id }}"
+                                                                data-rekap-periode="{{ $rekap->periode }}"
+                                                                title="Input No SP2D"
+                                                                style="font-size:11px;">
+                                                                <i class="bx bx-edit-alt"></i> Proses
+                                                            </button>
+                                                        @endif
                                                     @endif
                                                 </div>
                                             </td>

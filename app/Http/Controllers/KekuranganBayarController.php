@@ -977,79 +977,152 @@ class KekuranganBayarController extends Controller
       return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal menghitung kekurangan. ' . $alias['message']);
     }
 
-    $jenisLabel = strtolower(str_replace(' ', '_', $jenis === 'Semua' ? 'semua' : $jenis));
-    $tipeLabel = strtolower($tipe === 'Semua' ? 'semua' : $tipe);
-    $bankLabel = strtolower($bank === 'Semua' ? 'semua' : $bank);
-
+    $isAllSemua = ($tipe === 'Semua' && $jenis === 'Semua' && $bank === 'Semua');
     $rekapCreated = 0;
-    try {
-      $base = DB::table('t_kekurangan as ku')
-        ->join('s_transaksi_2 as k', function ($join) {
-          $join->on('ku.nidn', '=', 'k.NIDN');
-        })
-        ->where('ku.tahun', $versi)
-        ->where('k.Tahun_Versi', $versi);
 
-      if ($tipe !== 'Semua') {
-        if ($tipe === 'TPD') { $base->whereRaw('(ku.jml_tpd + 0) <> 0'); } 
-        elseif ($tipe === 'TKGB') { $base->whereRaw('(ku.jml_tkgb + 0) <> 0'); }
+    try {
+      $combinations = [];
+      if ($isAllSemua) {
+        // Mass Generate: Hanya KURANG, di-split per Bank, Tipe (TPD/TKGB), dan Jenis (PNS/NON PNS)
+        $combinationsRaw = DB::table('t_kekurangan as ku')
+            ->join('s_transaksi_2 as k', 'ku.nidn', '=', 'k.NIDN')
+            ->where('ku.tahun', $versi)
+            ->where('k.Tahun_Versi', $versi)
+            ->whereRaw('(ku.bersih + 0) < 0')
+            ->selectRaw("
+                TRIM(k.Bank) as bank, 
+                CASE WHEN UPPER(k.Jenis) LIKE '%NON%' THEN 'NON PNS' ELSE 'PNS' END as jenis,
+                CASE WHEN (ku.jml_tpd + 0) <> 0 THEN 'TPD' ELSE '' END as has_tpd,
+                CASE WHEN (ku.jml_tkgb + 0) <> 0 THEN 'TKGB' ELSE '' END as has_tkgb
+            ")
+            ->distinct()
+            ->get();
+            
+        foreach ($combinationsRaw as $c) {
+            $cb = trim($c->bank);
+            if ($cb === '') continue;
+            if ($c->has_tpd) {
+                $combinations[] = ['bank' => $cb, 'jenis' => $c->jenis, 'tipe' => 'TPD', 'for' => 'kurang'];
+            }
+            if ($c->has_tkgb) {
+                $combinations[] = ['bank' => $cb, 'jenis' => $c->jenis, 'tipe' => 'TKGB', 'for' => 'kurang'];
+            }
+        }
+        $combinations = array_map("unserialize", array_unique(array_map("serialize", $combinations)));
+      } else {
+        // Individual filter: Tipe, Jenis, Bank sesuai input
+        $combinations[] = ['bank' => $bank, 'jenis' => $jenis, 'tipe' => $tipe, 'for' => 'kurang'];
+        $combinations[] = ['bank' => $bank, 'jenis' => $jenis, 'tipe' => $tipe, 'for' => 'lebih'];
       }
-      if ($jenis !== 'Semua') {
-        if (strtoupper($jenis) === 'PNS') {
-          $base->where(function ($q) {
-            $q->whereRaw("UPPER(k.Jenis) LIKE '%PNS%'")
-              ->whereRaw("UPPER(k.Jenis) NOT LIKE '%NON%'");
-          });
-        } elseif (strtoupper($jenis) === 'NON PNS') {
-          $base->whereRaw("UPPER(k.Jenis) LIKE '%NON%'");
-        } else {
-          $base->whereRaw("TRIM(k.Jenis) = ?", [trim($jenis)]);
+
+      // Filter out existing combinations to prevent duplicate generation
+      $validCombinations = [];
+      foreach ($combinations as $combo) {
+        $cBank = $combo['bank'];
+        $cJenis = $combo['jenis'];
+        $cTipe = $combo['tipe'];
+        $cFor = $combo['for'];
+        
+        $jenisLabel = strtolower(str_replace(' ', '_', $cJenis === 'Semua' ? 'semua' : $cJenis));
+        $tipeLabel = strtolower($cTipe === 'Semua' ? 'semua' : $cTipe);
+        $bankLabel = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $cBank === 'Semua' ? 'semua' : $cBank));
+        
+        $folder = $cFor === 'kurang' ? 'rekap_kekurangan' : 'rekap_kelebihan';
+        $excelRelPath = $folder . '/' . $folder . '_jan_des_' . $jenisLabel . '_' . $tipeLabel . '_' . $bankLabel . '_' . $versi . '.xls';
+        $periodeStr = ($cFor === 'kurang' ? 'Kurang' : 'Lebih') . ' Jan-Des ' . $versi;
+
+        $exists = DB::table('u_rekap_kekurangan')
+            ->where('periode', $periodeStr)
+            ->where('tipe', $cTipe)
+            ->where('bank', $cBank)
+            ->where('excel', $excelRelPath)
+            ->exists();
+            
+        if (!$exists) {
+            $validCombinations[] = $combo;
         }
       }
-      if ($bank !== 'Semua') { $base->whereRaw('TRIM(k.Bank) = ?', [trim($bank)]); }
 
-      $select = [
-        'k.NIDN as NIDN', 'k.Nama as Nama', 'k.Jenis as Jenis', 'k.Bank as Bank',
-        'k.Jabatan12 as Jabatan12', 'k.Aktif as Aktif', 'ku.bersih as delta_bersih',
-      ];
-      for ($i = 1; $i <= 12; $i++) {
-        $select[] = 'k.Gol' . $i; $select[] = 'k.Jabatan' . $i;
-        $select[] = 'k.TPD' . $i; $select[] = 'k.TKGB' . $i; $select[] = 'k.Gaji' . $i;
-        $select[] = 'k.No_sp2d_' . $i; $select[] = 'k.Tgl_sp2d_' . $i;
+      if (empty($validCombinations)) {
+          return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Semua data untuk kombinasi filter dan periode ini sudah pernah diproses. Tidak ada data rekap baru yang perlu ditambahkan.');
       }
+      
+      $combinations = $validCombinations;
 
-      $rowsKurang = (clone $base)->whereRaw('(ku.bersih + 0) < 0')->get($select);
-      if (!$rowsKurang->isEmpty()) {
-        $this->ensurePublicFolder('rekap_kekurangan');
-        $excelRelPath = 'rekap_kekurangan/rekap_kekurangan_jan_des_' . $jenisLabel . '_' . $tipeLabel . '_' . $bankLabel . '_' . $versi . '.xls';
-        $this->putPublicFile($excelRelPath, $this->toExcelHtmlLikeTable($rowsKurang->all(), $tarifMap));
+      // Execution
+      foreach ($combinations as $combo) {
+        $cBank = $combo['bank'];
+        $cJenis = $combo['jenis'];
+        $cTipe = $combo['tipe'];
+        $cFor = $combo['for'];
 
-        // Hitung total_nominal = Grand Total dari Excel (sum abs(kesimpulan) per dosen)
-        $totalNominalKurang = $this->computeGrandTotalFromRows($rowsKurang->all(), $tarifMap);
+        $base = DB::table('t_kekurangan as ku')
+          ->join('s_transaksi_2 as k', function ($join) {
+            $join->on('ku.nidn', '=', 'k.NIDN');
+          })
+          ->where('ku.tahun', $versi)
+          ->where('k.Tahun_Versi', $versi);
+
+        if ($cTipe !== 'Semua') {
+          if ($cTipe === 'TPD') { $base->whereRaw('(ku.jml_tpd + 0) <> 0'); } 
+          elseif ($cTipe === 'TKGB') { $base->whereRaw('(ku.jml_tkgb + 0) <> 0'); }
+        }
+        if ($cJenis !== 'Semua') {
+          if (strtoupper($cJenis) === 'PNS') {
+            $base->where(function ($q) {
+              $q->whereRaw("UPPER(k.Jenis) LIKE '%PNS%'")
+                ->whereRaw("UPPER(k.Jenis) NOT LIKE '%NON%'");
+            });
+          } elseif (strtoupper($cJenis) === 'NON PNS') {
+            $base->whereRaw("UPPER(k.Jenis) LIKE '%NON%'");
+          } else {
+            $base->whereRaw("TRIM(k.Jenis) = ?", [trim($cJenis)]);
+          }
+        }
+        if ($cBank !== 'Semua') { $base->whereRaw('TRIM(k.Bank) = ?', [trim($cBank)]); }
+
+        if ($cFor === 'kurang') {
+            $base->whereRaw('(ku.bersih + 0) < 0');
+        } else {
+            $base->whereRaw('(ku.bersih + 0) > 0');
+        }
+
+        $select = [
+          'k.NIDN as NIDN', 'k.Nama as Nama', 'k.Jenis as Jenis', 'k.Bank as Bank',
+          'k.Jabatan12 as Jabatan12', 'k.Aktif as Aktif', 'ku.bersih as delta_bersih',
+        ];
+        for ($i = 1; $i <= 12; $i++) {
+          $select[] = 'k.Gol' . $i; $select[] = 'k.Jabatan' . $i;
+          $select[] = 'k.TPD' . $i; $select[] = 'k.TKGB' . $i; $select[] = 'k.Gaji' . $i;
+          $select[] = 'k.No_sp2d_' . $i; $select[] = 'k.Tgl_sp2d_' . $i;
+        }
+
+        $rows = $base->get($select);
+        if ($rows->isEmpty()) continue;
+
+        $jenisLabel = strtolower(str_replace(' ', '_', $cJenis === 'Semua' ? 'semua' : $cJenis));
+        $tipeLabel = strtolower($cTipe === 'Semua' ? 'semua' : $cTipe);
+        $bankLabel = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $cBank === 'Semua' ? 'semua' : $cBank));
+        
+        $folder = $cFor === 'kurang' ? 'rekap_kekurangan' : 'rekap_kelebihan';
+        $excelRelPath = $folder . '/' . $folder . '_jan_des_' . $jenisLabel . '_' . $tipeLabel . '_' . $bankLabel . '_' . $versi . '.xls';
+        $periodeStr = ($cFor === 'kurang' ? 'Kurang' : 'Lebih') . ' Jan-Des ' . $versi;
+
+        $this->ensurePublicFolder($folder);
+        $this->putPublicFile($excelRelPath, $this->toExcelHtmlLikeTable($rows->all(), $tarifMap));
+
+        $totalNominal = $this->computeGrandTotalFromRows($rows->all(), $tarifMap);
 
         $this->insertRekapRow([
-          'periode' => 'Kurang Jan-Des ' . $versi, 'pegawai' => (string) $rowsKurang->count(),
-          'tipe' => $tipe, 'bank' => $bank, 'excel' => $excelRelPath, 'pdf' => null,
-          'total_nominal' => $totalNominalKurang,
-          'created_at' => now(), 'updated_at' => now(),
-        ]);
-        $rekapCreated++;
-      }
-
-      $rowsLebih = (clone $base)->whereRaw('(ku.bersih + 0) > 0')->get($select);
-      if (!$rowsLebih->isEmpty()) {
-        $this->ensurePublicFolder('rekap_kelebihan');
-        $excelRelPath = 'rekap_kelebihan/rekap_kelebihan_jan_des_' . $jenisLabel . '_' . $tipeLabel . '_' . $bankLabel . '_' . $versi . '.xls';
-        $this->putPublicFile($excelRelPath, $this->toExcelHtmlLikeTable($rowsLebih->all(), $tarifMap));
-
-        // Hitung total_nominal = Grand Total dari Excel (sum abs(kesimpulan) per dosen)
-        $totalNominalLebih = $this->computeGrandTotalFromRows($rowsLebih->all(), $tarifMap);
-
-        $this->insertRekapRow([
-          'periode' => 'Lebih Jan-Des ' . $versi, 'pegawai' => (string) $rowsLebih->count(),
-          'tipe' => $tipe, 'bank' => $bank, 'excel' => $excelRelPath, 'pdf' => null,
-          'total_nominal' => $totalNominalLebih,
-          'created_at' => now(), 'updated_at' => now(),
+          'periode' => $periodeStr, 
+          'pegawai' => (string) $rows->count(),
+          'tipe' => $cTipe, 
+          'bank' => $cBank, 
+          'excel' => $excelRelPath, 
+          'pdf' => null,
+          'total_nominal' => $totalNominal,
+          'created_at' => now(), 
+          'updated_at' => now(),
         ]);
         $rekapCreated++;
       }

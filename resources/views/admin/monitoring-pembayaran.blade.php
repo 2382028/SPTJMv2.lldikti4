@@ -497,10 +497,7 @@ $months = [
 
             // Selisih totals (soft red)
             const sl=data.selisihTotals||{};
- HEAD
-            tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="4"></td></tr>`;
-=======
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="5" class="text-center">Jumlah Selisih Bayar</td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="4" class="text-center">Jumlah Selisih Bayar</td><td></td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
             // Total Akhir: Kurang Bayar → Jumlah + Uraian, Lebih Bayar → Jumlah - Uraian
             const riwayatData2 = data.riwayatPembayaran || [];
@@ -512,7 +509,6 @@ $months = [
             const taPajakTpd = isKurang ? (t.pajakTpd||0)+riwPjk : (t.pajakTpd||0)-riwPjk;
             const taBersihTpd = isKurang ? (t.bersihTpd||0)+riwBrs : (t.bersihTpd||0)-riwBrs;
             tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0fff4"><td colspan="4" class="text-center">Total Akhir</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(taKotorTpd)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(taPajakTpd)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(taBersihTpd)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
- 7a4002d (perbaikan total pembayaran)
           }
 
           // UPDATE TABEL KEDUA (URAIAN PEMBAYARAN)

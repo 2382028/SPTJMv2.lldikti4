@@ -352,7 +352,7 @@ class MonitoringPembayaranController extends Controller
       $selisihBulanan[] = (float) $selisihBulan;
 
       // Status logic
-      if ($isResolved && $hasSp2d && $hasData) {
+      if ($isResolved && $hasSp2d && $hasData && abs($selisihBulan) < 0.01) {
         $statusBulanan[] = 'selesai';
       } elseif (!$hasData && !$kode) {
         $statusBulanan[] = null;
@@ -633,7 +633,7 @@ class MonitoringPembayaranController extends Controller
 
       $selisihBulanan[] = (float) $selisihBulan;
 
-      if ($isResolved && $hasSp2d && $hasData) {
+      if ($isResolved && $hasSp2d && $hasData && abs($selisihBulan) < 0.01) {
         $statusBulanan[] = 'selesai';
       } elseif (!$hasData && !$kode) {
         $statusBulanan[] = null;

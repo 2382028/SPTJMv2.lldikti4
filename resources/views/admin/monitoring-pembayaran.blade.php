@@ -266,15 +266,33 @@ $months = [
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
 
+        @php
+          $selisihBersihTotalMain = (float)($selisihTotals['selisihBersihTpd'] ?? 0) + (float)($selisihTotals['selisihBersihTkgb'] ?? 0);
+          $isKurangMain = ($selisihBersihTotalMain < 0);
+          $isLebihMain = ($selisihBersihTotalMain > 0);
+          $vKurang = function($k) use ($selisihTotals, $isKurangMain) { return $isKurangMain ? abs((float)($selisihTotals[$k] ?? 0)) : 0; };
+          $vLebih = function($k) use ($selisihTotals, $isLebihMain) { return $isLebihMain ? abs((float)($selisihTotals[$k] ?? 0)) : 0; };
+        @endphp
         <tr class="fw-bold" style="background-color: #fff0f0">
-          <td colspan="4" class="text-center">Jumlah Selisih Bayar</td>
+          <td colspan="4" class="text-center">Pembayaran Kekurangan</td>
           <td></td>
-          <td class="text-end">{{ number_format((float)($selisihTotals['selisihTpd'] ?? 0),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihTkgb'] ?? 0),0,',','.') }}</td>@endif
-          <td class="text-end">{{ number_format((float)($selisihTotals['selisihPajakTpd'] ?? 0),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihPajakTkgb'] ?? 0),0,',','.') }}</td>@endif
-          <td class="text-end">{{ number_format((float)($selisihTotals['selisihBersihTpd'] ?? 0),0,',','.') }}</td>
-          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format((float)($selisihTotals['selisihBersihTkgb'] ?? 0),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($vKurang('selisihTpd'),0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vKurang('selisihTkgb'),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($vKurang('selisihPajakTpd'),0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vKurang('selisihPajakTkgb'),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($vKurang('selisihBersihTpd'),0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vKurang('selisihBersihTkgb'),0,',','.') }}</td>@endif
+          <td colspan="2"></td><td colspan="2"></td>
+        </tr>
+        <tr class="fw-bold" style="background-color: #f0f0ff">
+          <td colspan="4" class="text-center">Pengembalian Kelebihan</td>
+          <td></td>
+          <td class="text-end">{{ number_format($vLebih('selisihTpd'),0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vLebih('selisihTkgb'),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($vLebih('selisihPajakTpd'),0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vLebih('selisihPajakTkgb'),0,',','.') }}</td>@endif
+          <td class="text-end">{{ number_format($vLebih('selisihBersihTpd'),0,',','.') }}</td>
+          @if($hasTkgb)<td class="text-end tkgb-col">{{ number_format($vLebih('selisihBersihTkgb'),0,',','.') }}</td>@endif
           <td colspan="2"></td><td colspan="2"></td>
         </tr>
 
@@ -393,11 +411,28 @@ $months = [
           <td class="text-end">{{ number_format($totalUraianBersih, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
+        @php
+          $isKurangU = ($selisihBersihTotalUraian < 0);
+          $isLebihU = ($selisihBersihTotalUraian > 0);
+          $kNominal = $isKurangU ? abs($uraianSelisihNominal) : 0;
+          $kPajak   = $isKurangU ? abs($uraianSelisihPajak) : 0;
+          $kBersih  = $isKurangU ? abs($uraianSelisihBersih) : 0;
+          $lNominal = $isLebihU ? abs($uraianSelisihNominal) : 0;
+          $lPajak   = $isLebihU ? abs($uraianSelisihPajak) : 0;
+          $lBersih  = $isLebihU ? abs($uraianSelisihBersih) : 0;
+        @endphp
         <tr class="fw-bold" style="background-color: #fff0f0;">
-          <td colspan="3" class="text-start">Selisih Bayar</td>
-          <td class="text-end">{{ number_format($uraianSelisihNominal, 0, ',', '.') }}</td>
-          <td class="text-end">{{ number_format($uraianSelisihPajak, 0, ',', '.') }}</td>
-          <td class="text-end">{{ number_format($uraianSelisihBersih, 0, ',', '.') }}</td>
+          <td colspan="3" class="text-start">Pembayaran Kekurangan</td>
+          <td class="text-end">{{ number_format($kNominal, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($kPajak, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($kBersih, 0, ',', '.') }}</td>
+          <td colspan="2"></td>
+        </tr>
+        <tr class="fw-bold" style="background-color: #f0f0ff;">
+          <td colspan="3" class="text-start">Pengembalian Kelebihan</td>
+          <td class="text-end">{{ number_format($lNominal, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($lPajak, 0, ',', '.') }}</td>
+          <td class="text-end">{{ number_format($lBersih, 0, ',', '.') }}</td>
           <td colspan="2"></td>
         </tr>
         <tr class="fw-bold" style="background-color: #f0fff4;">
@@ -496,9 +531,15 @@ $months = [
             const t=data.totals||{};
             tbody.innerHTML+=`<tr class="fw-bold table-light"><td colspan="4" class="text-center">Jumlah</td><td class="text-end">${fmt(t.gaji||0)}</td><td class="text-end">${fmt(t.kotorTpd||0)}</td>${tkc(t.kotorTkgb||0)}<td class="text-end">${fmt(t.pajakTpd||0)}</td>${tkc(t.pajakTkgb||0)}<td class="text-end">${fmt(t.bersihTpd||0)}</td>${tkc(t.bersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
-            // Selisih totals (soft red)
+            // Pembayaran Kekurangan dan Pengembalian Kelebihan
             const sl=data.selisihTotals||{};
-            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="4" class="text-center">Jumlah Selisih Bayar</td><td></td><td class="text-end">${fmt(sl.selisihTpd||0)}</td>${tkc(sl.selisihTkgb||0)}<td class="text-end">${fmt(sl.selisihPajakTpd||0)}</td>${tkc(sl.selisihPajakTkgb||0)}<td class="text-end">${fmt(sl.selisihBersihTpd||0)}</td>${tkc(sl.selisihBersihTkgb||0)}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            const sbTot = (sl.selisihBersihTpd||0) + (sl.selisihBersihTkgb||0);
+            const isK = sbTot < 0, isL = sbTot > 0;
+            const vK = (k) => isK ? Math.abs(sl[k]||0) : 0;
+            const vL = (k) => isL ? Math.abs(sl[k]||0) : 0;
+            
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#fff0f0"><td colspan="4" class="text-center">Pembayaran Kekurangan</td><td></td><td class="text-end">${fmt(vK('selisihTpd'))}</td>${tkc(vK('selisihTkgb'))}<td class="text-end">${fmt(vK('selisihPajakTpd'))}</td>${tkc(vK('selisihPajakTkgb'))}<td class="text-end">${fmt(vK('selisihBersihTpd'))}</td>${tkc(vK('selisihBersihTkgb'))}<td colspan="2"></td><td colspan="2"></td></tr>`;
+            tbody.innerHTML+=`<tr class="fw-bold" style="background-color:#f0f0ff"><td colspan="4" class="text-center">Pengembalian Kelebihan</td><td></td><td class="text-end">${fmt(vL('selisihTpd'))}</td>${tkc(vL('selisihTkgb'))}<td class="text-end">${fmt(vL('selisihPajakTpd'))}</td>${tkc(vL('selisihPajakTkgb'))}<td class="text-end">${fmt(vL('selisihBersihTpd'))}</td>${tkc(vL('selisihBersihTkgb'))}<td colspan="2"></td><td colspan="2"></td></tr>`;
 
             // Total Akhir: Kurang Bayar → Jumlah + Uraian, Lebih Bayar → Jumlah - Uraian
             const riwayatData2 = data.riwayatPembayaran || [];
@@ -577,22 +618,35 @@ $months = [
               `;
               tbodyRiwayat.appendChild(trTotal);
 
-              // Row: Selisih Bayar (soft red)
-              const trSelisih = document.createElement('tr');
-              trSelisih.className = 'fw-bold';
-              trSelisih.style.backgroundColor = '#fff0f0';
-              trSelisih.innerHTML = `
-                <td colspan="3" class="text-start">Selisih Bayar</td>
-                <td class="text-end">${fmt(uraianSelisihNom)}</td>
-                <td class="text-end">${fmt(uraianSelisihPjk)}</td>
-                <td class="text-end">${fmt(uraianSelisihBrs)}</td>
-                <td colspan="2"></td>
-              `;
-              tbodyRiwayat.appendChild(trSelisih);
-
-              // Row: Total Akhir: Kurang → Pembayaran + Selisih, Lebih → Selisih - Pembayaran
               const selisihBersihTotalU = (slU.selisihBersihTpd||0) + (slU.selisihBersihTkgb||0);
               const isKurangU = selisihBersihTotalU < 0;
+              const isLebihU = selisihBersihTotalU > 0;
+
+              // Row: Pembayaran Kekurangan
+              const trKurang = document.createElement('tr');
+              trKurang.className = 'fw-bold';
+              trKurang.style.backgroundColor = '#fff0f0';
+              trKurang.innerHTML = `
+                <td colspan="3" class="text-start">Pembayaran Kekurangan</td>
+                <td class="text-end">${fmt(isKurangU ? Math.abs(uraianSelisihNom) : 0)}</td>
+                <td class="text-end">${fmt(isKurangU ? Math.abs(uraianSelisihPjk) : 0)}</td>
+                <td class="text-end">${fmt(isKurangU ? Math.abs(uraianSelisihBrs) : 0)}</td>
+                <td colspan="2"></td>
+              `;
+              tbodyRiwayat.appendChild(trKurang);
+
+              // Row: Pengembalian Kelebihan
+              const trLebih = document.createElement('tr');
+              trLebih.className = 'fw-bold';
+              trLebih.style.backgroundColor = '#f0f0ff';
+              trLebih.innerHTML = `
+                <td colspan="3" class="text-start">Pengembalian Kelebihan</td>
+                <td class="text-end">${fmt(isLebihU ? Math.abs(uraianSelisihNom) : 0)}</td>
+                <td class="text-end">${fmt(isLebihU ? Math.abs(uraianSelisihPjk) : 0)}</td>
+                <td class="text-end">${fmt(isLebihU ? Math.abs(uraianSelisihBrs) : 0)}</td>
+                <td colspan="2"></td>
+              `;
+              tbodyRiwayat.appendChild(trLebih);
               const trAkhir = document.createElement('tr');
               trAkhir.className = 'fw-bold';
               trAkhir.style.backgroundColor = '#f0fff4';

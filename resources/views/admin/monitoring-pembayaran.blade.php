@@ -38,7 +38,7 @@ $months = [
     <div class="row mb-3 mx-2">
       <label class="col-sm-2 col-form-label"><b style="font-size: 12px;">NIDN / NUPTK</b></label>
       <div class="col-sm-6">
-        <input type="text" class="form-control" name="nidn" value="{{ old('nidn', $nidn ?? '') }}"
+        <input type="text" class="form-control" name="nidn" id="search_nidn" value="{{ old('nidn', $nidn ?? '') }}"
           placeholder="Masukkan NIDN/NUPTK" required>
       </div>
       <div class="col-sm-2">
@@ -146,8 +146,8 @@ $months = [
     <div class="col-sm-6">
       <div class="d-flex gap-2 align-items-end">
         @csrf
-        <input type="hidden" name="start_year" value="{{ $startYear ?? old('start_year') }}">
-        <input type="hidden" name="end_year" value="{{ $endYear ?? old('end_year') }}">
+        <input type="hidden" name="start_year" id="hidden_start_year" value="{{ $startYear ?? old('start_year') }}">
+        <input type="hidden" name="end_year" id="hidden_end_year" value="{{ $endYear ?? old('end_year') }}">
 
         <div>
           <label class="form-label mb-1" style="font-size:11px;">Filter Tahun</label>
@@ -385,21 +385,21 @@ $months = [
         </tr>
         @endforelse
         @php
-           $kGross = $summaryRekap['k_gross'] ?? 0;
-           $kPajak = $summaryRekap['k_pajak'] ?? 0;
-           $kNet = $summaryRekap['k_net'] ?? 0;
+           $kGross = $summaryOriginal['pure_k_gross'] ?? 0;
+           $kPajak = $summaryOriginal['pure_k_pajak'] ?? 0;
+           $kNet = $summaryOriginal['pure_k_net'] ?? 0;
            
-           $lGross = $summaryRekap['l_gross'] ?? 0;
-           $lPajak = $summaryRekap['l_pajak'] ?? 0;
-           $lNet = $summaryRekap['l_net'] ?? 0;
+           $lGross = $summaryOriginal['pure_l_gross'] ?? 0;
+           $lPajak = $summaryOriginal['pure_l_pajak'] ?? 0;
+           $lNet = $summaryOriginal['pure_l_net'] ?? 0;
            
            $pure_k = $summaryOriginal['pure_k_gross'] ?? 0;
            $pure_l = $summaryOriginal['pure_l_gross'] ?? 0;
            $nettingText = ($pure_k > 0 && $pure_l > 0) ? '<br><small class="text-muted fw-normal" style="font-size: 0.85em;">* Hasil kompensasi: Kekurangan Rp' . number_format($pure_k, 0, ',', '.') . ' - Kelebihan Rp' . number_format($pure_l, 0, ',', '.') . '</small>' : '';
            
-           $totalAkhirGross = $totalKotorTpd + $totalKotorTkgb + $kGross - $lGross;
-           $totalAkhirPajak = $totalPajakTpd + $totalPajakTkgb + $kPajak - $lPajak;
-           $totalAkhirNet = $totalBersihTpd + $totalBersihTkgb + $kNet - $lNet;
+           $totalAkhirGross = $totalKotorTpd + $totalKotorTkgb + $kGross - $lGross - $totalUraianNominal;
+           $totalAkhirPajak = $totalPajakTpd + $totalPajakTkgb + $kPajak - $lPajak - $totalUraianPajak;
+           $totalAkhirNet = $totalBersihTpd + $totalBersihTkgb + $kNet - $lNet - $totalUraianBersih;
         @endphp
         <tr class="fw-bold table-light">
           <td colspan="3" class="text-start">Total Pembayaran</td>
@@ -438,9 +438,9 @@ $months = [
       const filterSelect = document.querySelector('select[name="tahun_versi"]');
       if (!filterSelect) return;
       const token = document.querySelector('input[name="_token"]')?.value;
-      const nidnInput = document.querySelector('input[name="nidn"]');
-      const startYearInput = document.querySelector('input[name="start_year"]');
-      const endYearInput = document.querySelector('input[name="end_year"]');
+      const nidnInput = document.getElementById('search_nidn');
+      const startYearInput = document.getElementById('hidden_start_year');
+      const endYearInput = document.getElementById('hidden_end_year');
       const fmt = n => Number(n).toLocaleString('id-ID',{maximumFractionDigits:0});
       const statusCfg = {usulan:['bg-label-warning','Usulan'],proses:['bg-label-info','Proses'],kurang:['bg-label-danger','Kurang'],lebih:['bg-label-secondary','Lebih'],selesai:['bg-label-success','Selesai']};
 
@@ -449,11 +449,20 @@ $months = [
         const exy = document.getElementById('export_tahun_versi'); if(exy) exy.value=tahun;
         const csy = document.getElementById('cetak_spt_tahun_versi'); if(csy) csy.value=tahun;
 
+        // Tampilkan state loading agar tidak terasa "mentok"
+        filterSelect.disabled = true;
+        const originalText = filterSelect.options[filterSelect.selectedIndex].text;
+
         fetch("{{ route('monitoring-pembayaran.data') }}", {
           method:'POST', headers:{'Content-Type':'application/json','X-CSRF-TOKEN':token},
           body: JSON.stringify({nidn,start_year:sy,end_year:ey,tahun_versi:tahun})
         }).then(r=>r.json()).then(data=>{
-          if(!data.success){console.error(data.message);return;}
+          filterSelect.disabled = false;
+          if(!data.success){
+              alert("Gagal memuat data: " + data.message);
+              console.error(data.message);
+              return;
+          }
           const h=data.header||{};
 
           // Header
@@ -599,18 +608,17 @@ $months = [
               });
             }
 
-              const slU = data.summaryRekap || {};
-              const kGross = slU.k_gross || 0;
-              const kPajak = slU.k_pajak || 0;
-              const kNet = slU.k_net || 0;
-              const lGross = slU.l_gross || 0;
-              const lPajak = slU.l_pajak || 0;
-              const lNet = slU.l_net || 0;
-              
               const sumOriU = data.summaryOriginal || {};
               const pureK = sumOriU.pure_k_gross || 0;
               const pureL = sumOriU.pure_l_gross || 0;
               const nettingText = (pureK > 0 && pureL > 0) ? `<br><small class="text-muted fw-normal" style="font-size: 0.85em;">* Hasil kompensasi: Kekurangan Rp${fmt(pureK)} - Kelebihan Rp${fmt(pureL)}</small>` : '';
+
+              const kGross = sumOriU.pure_k_gross || 0;
+              const kPajak = sumOriU.pure_k_pajak || 0;
+              const kNet = sumOriU.pure_k_net || 0;
+              const lGross = sumOriU.pure_l_gross || 0;
+              const lPajak = sumOriU.pure_l_pajak || 0;
+              const lNet = sumOriU.pure_l_net || 0;
 
               const sumKotorTpd = (data.kotorTpd || []).reduce((a,b)=>a+parseFloat(b||0), 0);
               const sumKotorTkgb = (data.kotorTkgb || []).reduce((a,b)=>a+parseFloat(b||0), 0);
@@ -619,9 +627,9 @@ $months = [
               const sumBersihTpd = (data.bersihTpd || []).reduce((a,b)=>a+parseFloat(b||0), 0);
               const sumBersihTkgb = (data.bersihTkgb || []).reduce((a,b)=>a+parseFloat(b||0), 0);
 
-              const totalAkhirGross = sumKotorTpd + sumKotorTkgb + kGross - lGross;
-              const totalAkhirPajak = sumPajakTpd + sumPajakTkgb + kPajak - lPajak;
-              const totalAkhirNet = sumBersihTpd + sumBersihTkgb + kNet - lNet;
+              const totalAkhirGross = sumKotorTpd + sumKotorTkgb + kGross - lGross - totalUraianNominal;
+              const totalAkhirPajak = sumPajakTpd + sumPajakTkgb + kPajak - lPajak - totalUraianPajak;
+              const totalAkhirNet = sumBersihTpd + sumBersihTkgb + kNet - lNet - totalUraianBersih;
 
               // Row: Total Pembayaran
               const trTotal = document.createElement('tr');
@@ -675,7 +683,11 @@ $months = [
               tbodyRiwayat.appendChild(trAkhir);
           }
 
-        }).catch(err=>console.error(err));
+        }).catch(err=>{
+            filterSelect.disabled = false;
+            alert("Terjadi kesalahan jaringan atau server. Silakan muat ulang halaman.");
+            console.error(err);
+        });
       });
     });
   </script>

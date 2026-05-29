@@ -280,22 +280,26 @@ class MonitoringPembayaranController extends Controller
     // Cek bulan-bulan yang sudah diproses SP2D kekurangan/kelebihan
     $resolvedMonths = [];
     try {
-      $resolvedRows = DB::table('t_uraian_pembayaran')
+      $resolvedRows = DB::table('t_kekurangan')
         ->where('nidn', $nidn)
         ->where('tahun', $selectedYear)
-        ->select('bulan', 'nomor', 'tanggal', 'nominal')
+        ->where('jenis_pembayaran', 'like', 'PEMBAYARAN_%')
+        ->select('jenis_pembayaran', 'kode_bayar_k as nomor', 'tgl_bayar_k as tanggal', 'selisih as nominal')
         ->orderBy('id', 'asc')
         ->get();
       foreach ($resolvedRows as $r) {
-        $m = (int) $r->bulan;
-        if (!isset($resolvedMonths[$m])) {
-          $resolvedMonths[$m] = [
-            'nomor' => $r->nomor,
-            'tanggal' => $r->tanggal,
-            'nominal' => 0
-          ];
+        $parts = explode('_', $r->jenis_pembayaran);
+        $m = isset($parts[1]) ? (int) $parts[1] : 0;
+        if ($m > 0) {
+            if (!isset($resolvedMonths[$m])) {
+              $resolvedMonths[$m] = [
+                'nomor' => $r->nomor,
+                'tanggal' => $r->tanggal,
+                'nominal' => 0
+              ];
+            }
+            $resolvedMonths[$m]['nominal'] += (float) $r->nominal;
         }
-        $resolvedMonths[$m]['nominal'] += (float) $r->nominal;
       }
     } catch (\Throwable $e) { /* table might not exist yet */ }
 
@@ -340,7 +344,7 @@ class MonitoringPembayaranController extends Controller
       // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan, kurangi selisih dengan jumlah yang dibayar (cicilan)
       $isResolved = isset($resolvedMonths[$bulanNum]);
       if ($isResolved && $hasSp2d) {
-        $paidNet = $resolvedMonths[$bulanNum]['nominal'] ?? 0;
+        $paidNet = abs($resolvedMonths[$bulanNum]['nominal'] ?? 0);
         $tarif = $kotor > 0 ? ($pajak / $kotor) : 0;
         
         $paidGross = $paidNet;
@@ -397,6 +401,38 @@ class MonitoringPembayaranController extends Controller
         $statusBulanan[] = null;
       }
     }
+    
+    // Netting Subsidi Silang untuk Baris Bulanan
+    $netKurang = 0;
+    $netLebih = 0;
+    foreach ($selisihBulanan as $val) {
+        if ($val > 0.01) $netLebih += $val;
+        elseif ($val < -0.01) $netKurang += abs($val);
+    }
+    $kompensasi = min($netKurang, $netLebih);
+
+    if ($kompensasi > 0.01) {
+        $poolKurang = $kompensasi;
+        $poolLebih = $kompensasi;
+        
+        foreach ($selisihBulanan as $k => $v) {
+            if ($v > 0.01 && $poolLebih > 0.01) {
+                $potong = min($v, $poolLebih);
+                $selisihBulanan[$k] -= $potong;
+                $poolLebih -= $potong;
+                if (abs($selisihBulanan[$k]) < 0.01 && $statusBulanan[$k] == 'lebih') {
+                    $statusBulanan[$k] = 'selesai';
+                }
+            } elseif ($v < -0.01 && $poolKurang > 0.01) {
+                $potong = min(abs($v), $poolKurang);
+                $selisihBulanan[$k] += $potong; // Mendekati 0
+                $poolKurang -= $potong;
+                if (abs($selisihBulanan[$k]) < 0.01 && $statusBulanan[$k] == 'kurang') {
+                    $statusBulanan[$k] = 'selesai';
+                }
+            }
+        }
+    }
 
     // Summary totalSelisih = sum of per-row selisih (guaranteed sync with table)
     $summary = [
@@ -415,17 +451,23 @@ class MonitoringPembayaranController extends Controller
       $transaksi->JabatanSelected = $transaksi->{$jabatanField} ?? $transaksi->Jabatan12 ?? null;
     }
 
-    // Query uraian pembayaran dari t_uraian_pembayaran
+    // Query uraian pembayaran dari t_kekurangan
     $riwayatPembayaran = [];
     try {
-      $riwayatPembayaran = DB::table('t_uraian_pembayaran')
+      $riwayatRows = DB::table('t_kekurangan')
         ->where('nidn', $nidn)
         ->where('tahun', $selectedYear)
+        ->where('jenis_pembayaran', 'like', 'PEMBAYARAN_%')
+        ->select('id', 'jenis_pembayaran', 'kode_bayar_k as nomor', 'tgl_bayar_k as tanggal', 'selisih as nominal', 'keterangan as uraian_pembayaran')
         ->orderBy('id', 'asc')
-        ->get()
-        ->unique('bulan')
-        ->sortBy('bulan')
-        ->values();
+        ->get();
+        
+      // Map to add 'bulan' property for backward compatibility with the view
+      $riwayatPembayaran = $riwayatRows->map(function ($item) {
+          $parts = explode('_', $item->jenis_pembayaran);
+          $item->bulan = isset($parts[1]) ? (int) $parts[1] : 0;
+          return $item;
+      })->unique('bulan')->sortBy('bulan')->values();
     } catch (\Throwable $e) {
       // Table may not exist yet — silently continue
       $riwayatPembayaran = collect();
@@ -482,6 +524,11 @@ class MonitoringPembayaranController extends Controller
         if ($val > 0.01) $pureLebihGross += $val;
         elseif ($val < -0.01) $pureKurangGross += abs($val);
     }
+    
+    $pureKurangPajak = $pureKurangGross * $globalTarif;
+    $pureKurangNet = $pureKurangGross - $pureKurangPajak;
+    $pureLebihPajak = $pureLebihGross * $globalTarif;
+    $pureLebihNet = $pureLebihGross - $pureLebihPajak;
 
     $summaryOriginal = [
         'k_gross' => $asliKurangGross,
@@ -491,7 +538,11 @@ class MonitoringPembayaranController extends Controller
         'l_pajak' => $asliLebihPajak,
         'l_net' => $asliLebihNet,
         'pure_k_gross' => $pureKurangGross,
+        'pure_k_pajak' => $pureKurangPajak,
+        'pure_k_net' => $pureKurangNet,
         'pure_l_gross' => $pureLebihGross,
+        'pure_l_pajak' => $pureLebihPajak,
+        'pure_l_net' => $pureLebihNet,
     ];
 
     return view(
@@ -658,22 +709,26 @@ class MonitoringPembayaranController extends Controller
     // Cek bulan-bulan yang sudah diproses SP2D kekurangan/kelebihan
     $resolvedMonths = [];
     try {
-      $resolvedRows = DB::table('t_uraian_pembayaran')
+      $resolvedRows = DB::table('t_kekurangan')
         ->where('nidn', $nidn)
         ->where('tahun', $selectedYear)
-        ->select('bulan', 'nomor', 'tanggal', 'nominal')
+        ->where('jenis_pembayaran', 'like', 'PEMBAYARAN_%')
+        ->select('jenis_pembayaran', 'kode_bayar_k as nomor', 'tgl_bayar_k as tanggal', 'selisih as nominal')
         ->orderBy('id', 'asc')
         ->get();
       foreach ($resolvedRows as $r) {
-        $m = (int) $r->bulan;
-        if (!isset($resolvedMonths[$m])) {
-          $resolvedMonths[$m] = [
-            'nomor' => $r->nomor,
-            'tanggal' => $r->tanggal,
-            'nominal' => 0
-          ];
+        $parts = explode('_', $r->jenis_pembayaran);
+        $m = isset($parts[1]) ? (int) $parts[1] : 0;
+        if ($m > 0) {
+            if (!isset($resolvedMonths[$m])) {
+              $resolvedMonths[$m] = [
+                'nomor' => $r->nomor,
+                'tanggal' => $r->tanggal,
+                'nominal' => 0
+              ];
+            }
+            $resolvedMonths[$m]['nominal'] += (float) $r->nominal;
         }
-        $resolvedMonths[$m]['nominal'] += (float) $r->nominal;
       }
     } catch (\Throwable $e) { /* table might not exist yet */ }
 
@@ -713,7 +768,7 @@ class MonitoringPembayaranController extends Controller
       // Jika bulan ini sudah diproses SP2D kekurangan/kelebihan, kurangi selisih dengan jumlah yang dibayar (cicilan)
       $isResolved = isset($resolvedMonths[$bulanNum]);
       if ($isResolved && $hasSp2d) {
-        $paidNet = $resolvedMonths[$bulanNum]['nominal'] ?? 0;
+        $paidNet = abs($resolvedMonths[$bulanNum]['nominal'] ?? 0);
         $tarif = $kotor > 0 ? ($pajak / $kotor) : 0;
         
         $paidGross = $paidNet;
@@ -729,8 +784,7 @@ class MonitoringPembayaranController extends Controller
             if ($selisihBulan > 0) $selisihBulan = 0;
         }
       }
-
-      $selisihBulanan[] = (float) $originalSelisihBulan;
+      $selisihBulanan[] = (float) $selisihBulan;
       
       $tarifM = $kotor > 0 ? ($pajak / $kotor) : 0;
       if ($selisihBulan < -0.01) {
@@ -768,6 +822,38 @@ class MonitoringPembayaranController extends Controller
       } else {
         $statusBulanan[] = null;
       }
+    }
+
+    // Netting Subsidi Silang untuk Baris Bulanan (AJAX)
+    $netKurang = 0;
+    $netLebih = 0;
+    foreach ($selisihBulanan as $val) {
+        if ($val > 0.01) $netLebih += $val;
+        elseif ($val < -0.01) $netKurang += abs($val);
+    }
+    $kompensasi = min($netKurang, $netLebih);
+
+    if ($kompensasi > 0.01) {
+        $poolKurang = $kompensasi;
+        $poolLebih = $kompensasi;
+        
+        foreach ($selisihBulanan as $k => $v) {
+            if ($v > 0.01 && $poolLebih > 0.01) {
+                $potong = min($v, $poolLebih);
+                $selisihBulanan[$k] -= $potong;
+                $poolLebih -= $potong;
+                if (abs($selisihBulanan[$k]) < 0.01 && $statusBulanan[$k] == 'lebih') {
+                    $statusBulanan[$k] = 'selesai';
+                }
+            } elseif ($v < -0.01 && $poolKurang > 0.01) {
+                $potong = min(abs($v), $poolKurang);
+                $selisihBulanan[$k] += $potong; // Mendekati 0
+                $poolKurang -= $potong;
+                if (abs($selisihBulanan[$k]) < 0.01 && $statusBulanan[$k] == 'kurang') {
+                    $statusBulanan[$k] = 'selesai';
+                }
+            }
+        }
     }
 
     $summaryData = [
@@ -827,6 +913,11 @@ class MonitoringPembayaranController extends Controller
         if ($val > 0.01) $pureLebihGross += $val;
         elseif ($val < -0.01) $pureKurangGross += abs($val);
     }
+
+    $pureKurangPajak = $pureKurangGross * $globalTarif;
+    $pureKurangNet = $pureKurangGross - $pureKurangPajak;
+    $pureLebihPajak = $pureLebihGross * $globalTarif;
+    $pureLebihNet = $pureLebihGross - $pureLebihPajak;
     
     $summaryOriginal = [
         'k_gross' => $asliKurangGross,
@@ -836,20 +927,29 @@ class MonitoringPembayaranController extends Controller
         'l_pajak' => $asliLebihPajak,
         'l_net' => $asliLebihNet,
         'pure_k_gross' => $pureKurangGross,
+        'pure_k_pajak' => $pureKurangPajak,
+        'pure_k_net' => $pureKurangNet,
         'pure_l_gross' => $pureLebihGross,
+        'pure_l_pajak' => $pureLebihPajak,
+        'pure_l_net' => $pureLebihNet,
     ];
 
-    // Query uraian pembayaran dari t_uraian_pembayaran
+    // Query uraian pembayaran dari t_kekurangan
     $riwayatPembayaran = [];
     try {
-      $riwayatPembayaran = DB::table('t_uraian_pembayaran')
+      $riwayatRows = DB::table('t_kekurangan')
         ->where('nidn', $nidn)
         ->where('tahun', $selectedYear)
+        ->where('jenis_pembayaran', 'like', 'PEMBAYARAN_%')
+        ->select('id', 'jenis_pembayaran', 'kode_bayar_k as nomor', 'tgl_bayar_k as tanggal', 'selisih as nominal', 'keterangan as uraian_pembayaran')
         ->orderBy('id', 'asc')
-        ->get()
-        ->unique('bulan')
-        ->sortBy('bulan')
-        ->values();
+        ->get();
+        
+      $riwayatPembayaran = $riwayatRows->map(function ($item) {
+          $parts = explode('_', $item->jenis_pembayaran);
+          $item->bulan = isset($parts[1]) ? (int) $parts[1] : 0;
+          return $item;
+      })->unique('bulan')->sortBy('bulan')->values();
     } catch (\Throwable $e) {
       $riwayatPembayaran = collect();
     }

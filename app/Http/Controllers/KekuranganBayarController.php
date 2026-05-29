@@ -855,12 +855,21 @@ class KekuranganBayarController extends Controller
                   $addTPD = min($diffTPD, $paidGross);
                   $aktKotorTPD += $addTPD;
                   $paidGross -= $addTPD;
+              } elseif ($diffTPD < 0 && $paidGross > 0) { // Lebih Bayar (Aktual > Hak)
+                  $subTPD = min(abs($diffTPD), $paidGross);
+                  $aktKotorTPD -= $subTPD; // Kurangi aktual (karena sudah dikembalikan dosen)
+                  $paidGross -= $subTPD;
               }
+
               $diffTKGB = $dbKotorTKGB - $aktKotorTKGB;
               if ($diffTKGB > 0 && $paidGross > 0) {
                   $addTKGB = min($diffTKGB, $paidGross);
                   $aktKotorTKGB += $addTKGB;
                   $paidGross -= $addTKGB;
+              } elseif ($diffTKGB < 0 && $paidGross > 0) { // Lebih Bayar TKGB
+                  $subTKGB = min(abs($diffTKGB), $paidGross);
+                  $aktKotorTKGB -= $subTKGB;
+                  $paidGross -= $subTKGB;
               }
           }
 

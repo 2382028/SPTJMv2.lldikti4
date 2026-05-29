@@ -422,7 +422,7 @@ class KekuranganBayarController extends Controller
           $dbPajakTPD = $dbKotorTPD * $tarif;
           $dbPajakTKGB = $kenaTKGB ? ($dbKotorTKGB * $tarif) : 0.0;
           $aktPajakTPD = $aktKotorTPD * $tarif;
-          $aktPajakTKGB = $kenaTKGB ? ($aktKotorTKGB * $tarif) : 0.0;
+          $aktPajakTKGB = $aktKotorTKGB * $tarif; // Fix typo: was $aktKotorTKGB * $tarif
 
           $sumPajakTPD += ($dbPajakTPD - $aktPajakTPD);
           $sumPajakTKGB += ($dbPajakTKGB - $aktPajakTKGB);
@@ -997,6 +997,50 @@ class KekuranganBayarController extends Controller
     $isAllSemua = ($tipe === 'Semua' && $jenis === 'Semua' && $bank === 'Semua');
     $rekapCreated = 0;
 
+    // Pastikan kolom total_nominal dan jenis_pegawai ada di tabel rekap
+    $rekapTable = \Illuminate\Support\Facades\Schema::hasTable('u_rekap_kekurangan') ? 'u_rekap_kekurangan' : 'rekap_kekurangan';
+    $colsToAdd = [];
+    if (!\Illuminate\Support\Facades\Schema::hasColumn($rekapTable, 'total_nominal')) {
+        $colsToAdd[] = 'total_nominal';
+    }
+    if (!\Illuminate\Support\Facades\Schema::hasColumn($rekapTable, 'jenis_pegawai')) {
+        $colsToAdd[] = 'jenis_pegawai';
+    }
+    if (!empty($colsToAdd)) {
+        try {
+            \Illuminate\Support\Facades\Schema::table($rekapTable, function (\Illuminate\Database\Schema\Blueprint $table) use ($colsToAdd) {
+                if (in_array('total_nominal', $colsToAdd)) {
+                    $table->decimal('total_nominal', 18, 2)->nullable()->after('pdf');
+                }
+                if (in_array('jenis_pegawai', $colsToAdd)) {
+                    $table->string('jenis_pegawai', 20)->nullable()->after('tipe');
+                }
+            });
+        } catch (\Throwable $e) {
+            // Kolom mungkin sudah ada, lanjutkan saja
+        }
+    }
+
+    // Pastikan tabel t_uraian_pembayaran ada
+    if (!\Illuminate\Support\Facades\Schema::hasTable('t_uraian_pembayaran')) {
+        \Illuminate\Support\Facades\Schema::create('t_uraian_pembayaran', function (\Illuminate\Database\Schema\Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('rekap_id')->nullable();
+            $table->string('nidn', 50)->nullable();
+            $table->string('tahun', 4)->nullable();
+            $table->tinyInteger('bulan')->nullable();
+            $table->string('uraian_pembayaran', 255)->nullable();
+            $table->decimal('nominal', 15, 2)->default(0);
+            $table->decimal('pajak', 15, 2)->default(0);
+            $table->decimal('bersih', 15, 2)->default(0);
+            $table->string('nomor', 100)->nullable();
+            $table->date('tanggal')->nullable();
+            $table->timestamps();
+            $table->index(['nidn', 'tahun']);
+            $table->index('rekap_id');
+        });
+    }
+
     try {
       $combinations = [];
       if ($isAllSemua) {
@@ -1134,6 +1178,7 @@ class KekuranganBayarController extends Controller
           'periode' => $periodeStr, 
           'pegawai' => (string) $rows->count(),
           'tipe' => $cTipe, 
+          'jenis_pegawai' => $cJenis,
           'bank' => $cBank, 
           'excel' => $excelRelPath, 
           'pdf' => null,
@@ -1172,6 +1217,26 @@ class KekuranganBayarController extends Controller
 
   public function prosesAksiSp2d(Request $request)
   {
+    // Pastikan tabel t_uraian_pembayaran ada
+    if (!\Illuminate\Support\Facades\Schema::hasTable('t_uraian_pembayaran')) {
+        \Illuminate\Support\Facades\Schema::create('t_uraian_pembayaran', function (\Illuminate\Database\Schema\Blueprint $table) {
+            $table->bigIncrements('id');
+            $table->unsignedBigInteger('rekap_id')->nullable();
+            $table->string('nidn', 50)->nullable();
+            $table->string('tahun', 4)->nullable();
+            $table->tinyInteger('bulan')->nullable();
+            $table->string('uraian_pembayaran', 255)->nullable();
+            $table->decimal('nominal', 15, 2)->default(0);
+            $table->decimal('pajak', 15, 2)->default(0);
+            $table->decimal('bersih', 15, 2)->default(0);
+            $table->string('nomor', 100)->nullable();
+            $table->date('tanggal')->nullable();
+            $table->timestamps();
+            $table->index(['nidn', 'tahun']);
+            $table->index('rekap_id');
+        });
+    }
+
     $request->validate([
       'rekap_id' => 'nullable|integer',
       'nidn' => 'nullable|string',
@@ -1291,10 +1356,6 @@ class KekuranganBayarController extends Controller
           'k.bersihTKGB1', 'k.bersihTKGB2', 'k.bersihTKGB3', 'k.bersihTKGB4', 'k.bersihTKGB5', 'k.bersihTKGB6', 'k.bersihTKGB7', 'k.bersihTKGB8', 'k.bersihTKGB9', 'k.bersihTKGB10', 'k.bersihTKGB11', 'k.bersihTKGB12'
         )
         ->get();
-
-      // Filter berdasarkan tipe dan bank dari rekap jika bukan 'Semua'
-      $rekapTipe = trim($rekap->tipe ?? 'Semua');
-      $rekapBank = trim($rekap->bank ?? 'Semua');
 
       // Pre-load existing NIDN+bulan combos from t_uraian_pembayaran to prevent duplicates
       $existingUraian = [];

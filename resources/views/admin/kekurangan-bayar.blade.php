@@ -463,6 +463,7 @@
                                             <th class="text-center">Periode</th>
                                             <th class="text-center">Pegawai</th>
                                             <th class="text-center">Tipe</th>
+                                            <th class="text-center">PNS/Non PNS</th>
                                             <th class="text-center">Bank</th>
                                             <th class="text-center">Total Pembayaran</th>
                                             <th class="text-center">Tanggal Rekap</th>
@@ -491,6 +492,7 @@
                                             <td>{{ $rekap->periode }}</td>
                                             <td class="text-center">{{ $rekap->pegawai }}</td>
                                             <td class="text-center">{{ $rekap->tipe }}</td>
+                                            <td class="text-center">{{ $rekap->jenis_pegawai ?? '-' }}</td>
                                             <td>{{ $rekap->bank }}</td>
                                             <td class="text-end fw-semibold">Rp {{ number_format((float) ($rekap->total_nominal ?? 0), 0, ',', '.') }}</td>
                                             <td class="text-center">{{ \Carbon\Carbon::parse($rekap->created_at)->format('d-M-Y H:i') }}</td>

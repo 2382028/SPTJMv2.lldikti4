@@ -359,7 +359,8 @@ Route::post('/admin/kekurangan-bayar/proses', [KekuranganBayarController::class,
 Route::get('/admin/kekurangan-bayar/rekap', [KekuranganBayarController::class, 'rekap'])->name('admin.kekurangan-bayar.rekap');
 Route::get('/admin/kekurangan-bayar/rekap/{id}/detail', [KekuranganBayarController::class, 'detailRekap'])->name('admin.kekurangan-bayar.detail-rekap');
 Route::post('/admin/kekurangan-bayar/rekap/{id}/exclude', [KekuranganBayarController::class, 'excludeFromRekap'])->name('admin.kekurangan-bayar.exclude-rekap');
-Route::delete('/admin/kekurangan-bayar/rekap', [KekuranganBayarController::class, 'destroyRekapSelected'])->name('admin.kekurangan-bayar.destroy-rekap');
+Route::delete('/admin/kekurangan-bayar/rekap/semua', [KekuranganBayarController::class, 'destroySemuaRekap'])->name('admin.kekurangan-bayar.destroy-semua-rekap');
+Route::delete('/admin/kekurangan-bayar/rekap/{id}', [KekuranganBayarController::class, 'destroyRekap'])->name('admin.kekurangan-bayar.destroy-rekap-single');
 Route::delete('/admin/kekurangan-bayar', [KekuranganBayarController::class, 'destroyTahun'])->name('admin.kekurangan-bayar.destroy-tahun');
 Route::delete('/admin/kekurangan-bayar/kurang', [KekuranganBayarController::class, 'destroyKurang'])->name('admin.kekurangan-bayar.destroy-kurang');
 Route::delete('/admin/kekurangan-bayar/lebih', [KekuranganBayarController::class, 'destroyLebih'])->name('admin.kekurangan-bayar.destroy-lebih');

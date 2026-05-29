@@ -233,7 +233,11 @@
                                                 <td>{{ $formatInt($row->bersih_akt ?? 0) }}</td>
                                                 <td class="{{ $clsKesimpulan }}">{{ $formatInt($kesimpulan) }}</td>
                                                 <td class="text-center align-middle">
-                                                    @if($kesimpulan != 0)
+                                                    @if(in_array($row->NIDN, $processedRekapNidnsKurang ?? []))
+                                                    <span class="badge bg-label-info d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="Sudah diproses SP2D melalui Rekap">
+                                                        <i class="bx bx-check-circle me-1"></i> SP2D
+                                                    </span>
+                                                    @elseif($kesimpulan != 0)
                                                     @php
                                                         $availMonths = [];
                                                         for($m=1; $m<=12; $m++) {
@@ -250,10 +254,9 @@
                                                         <i class="bx bx-edit-alt"></i> Pembayaran
                                                     </button>
                                                     @else
-                                                    <button type="button" class="btn btn-sm btn-warning btn-edit-riwayat py-0 px-2"
-                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" title="Edit Riwayat NIDN: {{ $row->NIDN }}" style="font-size:11px;">
-                                                        <i class="bx bx-edit"></i> Edit Riwayat
-                                                    </button>
+                                                    <span class="badge bg-label-success d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="Tidak ada selisih">
+                                                        <i class="bx bx-check me-1"></i> Lunas
+                                                    </span>
                                                     @endif
                                                 </td>
                                         </tr>
@@ -390,7 +393,11 @@
                                                 <td>{{ $formatInt($row->bersih_akt ?? 0) }}</td>
                                                 <td class="{{ $clsKesimpulan }}">{{ $formatInt($kesimpulan) }}</td>
                                                 <td class="text-center align-middle">
-                                                    @if($kesimpulan != 0)
+                                                    @if(in_array($row->NIDN, $processedRekapNidnsLebih ?? []))
+                                                    <span class="badge bg-label-info d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="Sudah diproses SP2D melalui Rekap">
+                                                        <i class="bx bx-check-circle me-1"></i> SP2D
+                                                    </span>
+                                                    @elseif($kesimpulan != 0)
                                                     @php
                                                         $availMonths = [];
                                                         for($m=1; $m<=12; $m++) {
@@ -400,8 +407,7 @@
                                                             if($akK > $dbK) {
                                                                 $dbB = $row->{'db_bersih'.$m} ?? 0;
                                                                 $akB = $row->{'akt_bersih'.$m} ?? 0;
-                                                                $selisihBersih = $akB - $dbB; // Dibalik agar nominalnya positif
-                                                                // Use bersih difference if positive, else fallback to kotor difference
+                                                                $selisihBersih = $akB - $dbB;
                                                                 $nominal = $selisihBersih > 0 ? $selisihBersih : ($akK - $dbK);
                                                                 $availMonths[] = ['bulan' => $m, 'nominal' => $nominal];
                                                             }
@@ -412,10 +418,9 @@
                                                         <i class="bx bx-edit-alt"></i> Pembayaran
                                                     </button>
                                                     @else
-                                                    <button type="button" class="btn btn-sm btn-warning btn-edit-riwayat py-0 px-2"
-                                                        data-nidn="{{ $row->NIDN }}" data-nama="{{ $row->Nama }}" title="Edit Riwayat NIDN: {{ $row->NIDN }}" style="font-size:11px;">
-                                                        <i class="bx bx-edit"></i> Edit Riwayat
-                                                    </button>
+                                                    <span class="badge bg-label-success d-inline-flex align-items-center" style="font-size:10px;padding:3px 8px;" title="Tidak ada selisih">
+                                                        <i class="bx bx-check me-1"></i> Lunas
+                                                    </span>
                                                     @endif
                                                 </td>
                                         </tr>
@@ -442,9 +447,13 @@
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="mb-0">Rekap Kurang & Lebih Bayar</h5>
-                            <a href="{{ route('admin.kekurangan-bayar.rekap') }}" class="btn btn-sm btn-dark" title="Hapus Rekap">
-                                <span class="tf-icons bx bx-trash"></span>&nbsp; Kelola / Hapus Rekap
-                            </a>
+                            <form action="{{ route('admin.kekurangan-bayar.destroy-semua-rekap') }}" method="POST" class="d-inline form-hapus-semua-rekap">
+                                @csrf
+                                @method('DELETE')
+                                <button type="button" class="btn btn-sm btn-dark btn-hapus-semua-rekap" title="Hapus Semua Rekap beserta Data Dosen">
+                                    <span class="tf-icons bx bx-trash"></span>&nbsp; Hapus Semua Rekap
+                                </button>
+                            </form>
                         </div>
                         <div class="card-body pt-2">
                             <style>
@@ -492,7 +501,7 @@
                                             <td>{{ $rekap->periode }}</td>
                                             <td class="text-center">{{ $rekap->pegawai }}</td>
                                             <td class="text-center">{{ $rekap->tipe }}</td>
-                                            <td class="text-center">{{ $rekap->jenis_pegawai ?? '-' }}</td>
+                                            <td class="text-center">{{ $rekap->jenis ?? '-' }}</td>
                                             <td>{{ $rekap->bank }}</td>
                                             <td class="text-end fw-semibold">Rp {{ number_format((float) ($rekap->total_nominal ?? 0), 0, ',', '.') }}</td>
                                             <td class="text-center">{{ \Carbon\Carbon::parse($rekap->created_at)->format('d-M-Y H:i') }}</td>
@@ -525,6 +534,14 @@
                                                             </button>
                                                         @endif
                                                     @endif
+
+                                                    <form action="{{ route('admin.kekurangan-bayar.destroy-rekap-single', $rekap->id) }}" method="POST" class="d-inline form-hapus-rekap">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="button" class="btn btn-sm btn-danger py-0 px-2 btn-hapus-rekap" title="Hapus Rekap & Data Dosen" style="font-size:11px;">
+                                                            <i class="bx bx-trash"></i> Hapus
+                                                        </button>
+                                                    </form>
                                                 </div>
                                             </td>
                                         </tr>
@@ -1529,6 +1546,36 @@
         editRiwayatModalEl.addEventListener('hidden.bs.modal', function () {
             // Refresh to show updated data when modal closed
             window.location.reload();
+        });
+
+        document.querySelectorAll('.btn-hapus-rekap').forEach(btn => {
+            btn.addEventListener('click', async function(e) {
+                e.preventDefault();
+                const form = this.closest('form');
+                if (alertApi) {
+                    const r = await alertApi.question('Konfirmasi Hapus', 'Apakah Anda yakin ingin menghapus rekap ini beserta data kurang bayar untuk dosen terkait yang ada di dalamnya?', { confirmButtonText: 'Ya, Hapus' });
+                    if (r && r.isConfirmed) form.submit();
+                } else {
+                    if (confirm('Apakah Anda yakin ingin menghapus rekap ini beserta data kurang/lebih bayar untuk dosen terkait yang ada di dalamnya?')) {
+                        form.submit();
+                    }
+                }
+            });
+        });
+
+        document.querySelectorAll('.btn-hapus-semua-rekap').forEach(btn => {
+            btn.addEventListener('click', async function(e) {
+                e.preventDefault();
+                const form = this.closest('form');
+                if (alertApi) {
+                    const r = await alertApi.question('Konfirmasi Hapus Semua', 'Apakah Anda yakin ingin menghapus SELURUH rekap beserta data kurang/lebih bayar untuk dosen terkait yang ada di dalamnya?', { confirmButtonText: 'Ya, Hapus Semua' });
+                    if (r && r.isConfirmed) form.submit();
+                } else {
+                    if (confirm('Apakah Anda yakin ingin menghapus SELURUH rekap beserta data kurang/lebih bayar untuk dosen terkait yang ada di dalamnya?')) {
+                        form.submit();
+                    }
+                }
+            });
         });
 
     });

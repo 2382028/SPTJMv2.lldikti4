@@ -554,6 +554,8 @@ class KekuranganBayarController extends Controller
         'rekapLebih'   => collect(),
         'bankList' => DB::table('b_bank')->select('nama_bank')->whereNotNull('nama_bank')->where('nama_bank','!=','')->distinct()->orderBy('nama_bank')->pluck('nama_bank'),
         'flashInfo' => 'Cek Data selesai (tanpa insert). Klik Proses untuk menyimpan ke database.',
+        'processedRekapNidnsKurang' => [],
+        'processedRekapNidnsLebih' => [],
       ]);
     } catch (\Throwable $e) {
       $alias = ErrorAlias::fromThrowable($e, 'ADM-KEKURANGAN-CEK');
@@ -645,13 +647,61 @@ class KekuranganBayarController extends Controller
           $selectRaw .= ", SUM(CASE WHEN jenis_pembayaran IN ('K_TKGB{$i}', 'L_TKGB{$i}') THEN selisih * -1 ELSE 0 END) as k_tkgb{$i}";
       }
       
-      $selectRaw .= ", SUM(CASE WHEN jenis_pembayaran LIKE '%TPD%' THEN selisih * -1 ELSE 0 END) as jml_tpd";
-      $selectRaw .= ", SUM(CASE WHEN jenis_pembayaran LIKE '%TKGB%' THEN selisih * -1 ELSE 0 END) as jml_tkgb";
+      $selectRaw .= ", SUM(CASE WHEN jenis_pembayaran LIKE '%TPD%' AND jenis_pembayaran NOT LIKE 'PEMBAYARAN%' THEN selisih * -1 ELSE 0 END) as jml_tpd";
+      $selectRaw .= ", SUM(CASE WHEN jenis_pembayaran LIKE '%TKGB%' AND jenis_pembayaran NOT LIKE 'PEMBAYARAN%' THEN selisih * -1 ELSE 0 END) as jml_tkgb";
 
       return DB::table('t_kekurangan')
           ->where('tahun', $versi)
+          ->where('jenis_pembayaran', 'NOT LIKE', 'PEMBAYARAN%')
           ->selectRaw($selectRaw)
           ->groupBy('nidn', 'tahun');
+  }
+
+  private function getNidnsInRekap($rekap, $versi, $isKurang)
+  {
+      $cTipe = trim($rekap->tipe ?? 'Semua');
+      $cBank = trim($rekap->bank ?? 'Semua');
+      $cJenis = trim($rekap->jenis ?? 'Semua');
+      
+      $excludeNidns = [];
+      if (!empty($rekap->exclude_nidns)) {
+          $excludeNidns = explode(',', $rekap->exclude_nidns);
+          $excludeNidns = array_map('trim', $excludeNidns);
+          $excludeNidns = array_filter($excludeNidns);
+      }
+
+      $k2_sub = clone $this->getPivotSubquery($versi);
+      $bersihCondition = $isKurang ? '(ku.bersih + 0) < 0' : '(ku.bersih + 0) > 0';
+
+      $base = DB::table('s_transaksi_2 as k')
+          ->joinSub($k2_sub, 'ku', 'ku.nidn', '=', 'k.NIDN')
+          ->where('k.Tahun_Versi', $versi)
+          ->whereRaw($bersihCondition);
+
+      if ($cTipe !== 'Semua') {
+          if ($cTipe === 'TPD') { $base->whereRaw('(ku.jml_tpd + 0) <> 0'); } 
+          elseif ($cTipe === 'TKGB') { $base->whereRaw('(ku.jml_tkgb + 0) <> 0'); }
+      }
+      if ($cJenis !== 'Semua') {
+          if (strtoupper($cJenis) === 'PNS') {
+              $base->where(function ($q) {
+                  $q->whereRaw("UPPER(k.Jenis) LIKE '%PNS%'")
+                    ->whereRaw("UPPER(k.Jenis) NOT LIKE '%NON%'");
+              });
+          } elseif (strtoupper($cJenis) === 'NON PNS') {
+              $base->whereRaw("UPPER(k.Jenis) LIKE '%NON%'");
+          } else {
+              $base->whereRaw("TRIM(k.Jenis) = ?", [trim($cJenis)]);
+          }
+      }
+      if ($cBank !== 'Semua') { 
+          $base->whereRaw('TRIM(k.Bank) = ?', [trim($cBank)]); 
+      }
+      if (!empty($excludeNidns)) {
+          $base->whereNotIn('k.NIDN', $excludeNidns);
+      }
+
+      return $base->pluck('k.NIDN')->toArray();
   }
 
   public function index()
@@ -710,10 +760,10 @@ class KekuranganBayarController extends Controller
       })
       ->where('k.Tahun_Versi', $versi);
 
-    // Filter NIDN yang SUDAH LUNAS SEMUA BULANNYA
-    if (!empty($fullyPaidNidns)) {
-      $baseQuery->whereNotIn('k.NIDN', $fullyPaidNidns);
-    }
+    // fullyPaidNidns dihilangkan agar dosen yang sudah lunas (SP2D) tetap muncul di tabel
+    // if (!empty($fullyPaidNidns)) {
+    //   $baseQuery->whereNotIn('k.NIDN', $fullyPaidNidns);
+    // }
 
     $baseQuery->select(
         'k.NIDN', 'k.Nama', 'k.Jenis', 'k.Jabatan12', 'k.Aktif', 'k.Bank',
@@ -936,6 +986,27 @@ class KekuranganBayarController extends Controller
       } catch (\Throwable $e) { /* silent */ }
     }
 
+    // Collect NIDNs from rekaps that have been processed (SP2D filled)
+    $processedRekapNidnsKurang = [];
+    $processedRekapNidnsLebih = [];
+    $allRekapsForSp2d = DB::table('u_rekap_kekurangan')
+        ->whereRaw('RIGHT(periode, 4) = ?', [$versi])
+        ->whereNotNull('sp2d')
+        ->where('sp2d', '!=', '')
+        ->get();
+    foreach ($allRekapsForSp2d as $rek) {
+        $periode = strtolower(trim($rek->periode ?? ''));
+        $isKurangRek = (strpos($periode, 'kurang') !== false);
+        $nids = $this->getNidnsInRekap($rek, $versi, $isKurangRek);
+        if ($isKurangRek) {
+            $processedRekapNidnsKurang = array_merge($processedRekapNidnsKurang, $nids);
+        } else {
+            $processedRekapNidnsLebih = array_merge($processedRekapNidnsLebih, $nids);
+        }
+    }
+    $processedRekapNidnsKurang = array_unique($processedRekapNidnsKurang);
+    $processedRekapNidnsLebih = array_unique($processedRekapNidnsLebih);
+
     return view('admin.kekurangan-bayar', [
       'versi' => $versi,
       'detailKurang' => $detailKurang,
@@ -943,6 +1014,8 @@ class KekuranganBayarController extends Controller
       'rekapKurang'  => $rekapKurang,
       'rekapLebih'   => $rekapLebih,
       'bankList' => DB::table('b_bank')->select('nama_bank')->whereNotNull('nama_bank')->where('nama_bank','!=','')->distinct()->orderBy('nama_bank')->pluck('nama_bank'),
+      'processedRekapNidnsKurang' => $processedRekapNidnsKurang,
+      'processedRekapNidnsLebih' => $processedRekapNidnsLebih,
     ]);
   }
 
@@ -1217,6 +1290,7 @@ class KekuranganBayarController extends Controller
           'periode' => $periodeStr, 
           'pegawai' => (string) $rows->count(),
           'tipe' => $cTipe, 
+          'jenis' => $cJenis,
           'bank' => $cBank, 
           'excel' => $excelRelPath, 
           'pdf' => null,
@@ -1634,45 +1708,155 @@ class KekuranganBayarController extends Controller
   public function destroyKurang(Request $request)
   {
     $versi = session('tahun');
-    DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '<', 0)->delete();
-    return redirect()->route('admin.kekurangan-bayar')->with('success', "Data 'Kurang Bayar' tahun {$versi} berhasil dihapus.");
+    
+    // Find NIDNs in existing Rekap Kurang so they are NOT deleted here
+    $allRekaps = DB::table('u_rekap_kekurangan')
+        ->whereRaw('RIGHT(periode, 4) = ?', [$versi])
+        ->where(function ($q) { $q->where('excel', 'like', 'rekap_kekurangan/%')->orWhere('periode', 'like', 'Kurang%'); })
+        ->get();
+        
+    $rekapsKurangNidns = [];
+    foreach ($allRekaps as $rek) {
+        $nids = $this->getNidnsInRekap($rek, $versi, true);
+        $rekapsKurangNidns = array_merge($rekapsKurangNidns, $nids);
+    }
+    $rekapsKurangNidns = array_unique($rekapsKurangNidns);
+
+    $query = DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '<', 0);
+    if (!empty($rekapsKurangNidns)) {
+        $query->whereNotIn('nidn', $rekapsKurangNidns);
+    }
+    $query->delete();
+    
+    return redirect()->route('admin.kekurangan-bayar')->with('success', "Data 'Kurang Bayar' tahun {$versi} (yang belum direkap) berhasil dihapus.");
   }
 
   public function destroyLebih(Request $request)
   {
     $versi = session('tahun');
-    DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '>', 0)->delete();
-    return redirect()->route('admin.kekurangan-bayar')->with('success', "Data 'Lebih Bayar' tahun {$versi} berhasil dihapus.");
+    
+    // Find NIDNs in existing Rekap Lebih so they are NOT deleted here
+    $allRekaps = DB::table('u_rekap_kekurangan')
+        ->whereRaw('RIGHT(periode, 4) = ?', [$versi])
+        ->where(function ($q) { $q->where('excel', 'like', 'rekap_kelebihan/%')->orWhere('periode', 'like', 'Lebih%'); })
+        ->get();
+        
+    $rekapsLebihNidns = [];
+    foreach ($allRekaps as $rek) {
+        $nids = $this->getNidnsInRekap($rek, $versi, false);
+        $rekapsLebihNidns = array_merge($rekapsLebihNidns, $nids);
+    }
+    $rekapsLebihNidns = array_unique($rekapsLebihNidns);
+
+    $query = DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '>', 0);
+    if (!empty($rekapsLebihNidns)) {
+        $query->whereNotIn('nidn', $rekapsLebihNidns);
+    }
+    $query->delete();
+    
+    return redirect()->route('admin.kekurangan-bayar')->with('success', "Data 'Lebih Bayar' tahun {$versi} (yang belum direkap) berhasil dihapus.");
   }
 
-  public function destroyRekapSelected(Request $request)
+  public function destroyRekap(Request $request, $id)
   {
-    $versi = session('tahun');
-    $ids = array_values(array_filter($request->input('ids', []), function ($v) { return is_numeric($v); }));
-
-    if (empty($ids)) return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Tidak ada rekap dipilih.');
-
-    $rows = DB::table('u_rekap_kekurangan')->whereIn('id', $ids)->whereRaw('RIGHT(periode, 4) = ?', [$versi])->get(['id', 'excel', 'pdf']);
-    if ($rows->isEmpty()) return redirect()->route('admin.kekurangan-bayar')->with('warning', 'Rekap tidak ditemukan.');
-
-    DB::beginTransaction();
-    try {
-      foreach ($rows as $r) {
-        foreach (['excel', 'pdf'] as $key) {
-          if (!empty($r->$key)) {
-            $rel = str_replace('\\', '/', trim($r->$key));
-            if (strpos($rel, 'storage/') === 0) $rel = substr($rel, 8);
-            Storage::disk('public')->delete($rel);
-          }
-        }
+      $versi = session('tahun');
+      $rekap = DB::table('u_rekap_kekurangan')->where('id', $id)->first();
+      if (!$rekap) {
+          return back()->with('error', 'Rekap tidak ditemukan.');
       }
-      $deleted = DB::table('u_rekap_kekurangan')->whereIn('id', $rows->pluck('id')->all())->whereRaw('RIGHT(periode, 4) = ?', [$versi])->delete();
-      DB::commit();
-    } catch (\Throwable $e) {
-      DB::rollBack();
-      return redirect()->route('admin.kekurangan-bayar')->with('error', 'Gagal menghapus rekap.');
-    }
-    return redirect()->route('admin.kekurangan-bayar')->with('success', "Berhasil menghapus {$deleted} rekap.");
+
+      $periode = strtolower(trim($rekap->periode ?? ''));
+      $isKurang = (strpos($periode, 'kurang') !== false);
+      
+      // Get NIDNs in this rekap
+      $nidns = $this->getNidnsInRekap($rekap, $versi, $isKurang);
+      
+      DB::beginTransaction();
+      try {
+          // Delete underlying data for these NIDNs (original selisih + PEMBAYARAN rows)
+          if (!empty($nidns)) {
+              if ($isKurang) {
+                  DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '<', 0)->whereIn('nidn', $nidns)->delete();
+              } else {
+                  DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '>', 0)->whereIn('nidn', $nidns)->delete();
+              }
+              // Also delete PEMBAYARAN rows generated by SP2D processing for this rekap
+              DB::table('t_kekurangan')->where('tahun', $versi)
+                  ->where('jenis_pembayaran', 'LIKE', 'PEMBAYARAN%')
+                  ->whereIn('nidn', $nidns)
+                  ->delete();
+          }
+          
+          // Delete file
+          foreach (['excel', 'pdf'] as $key) {
+              if (!empty($rekap->$key)) {
+                  $rel = str_replace('\\', '/', trim($rekap->$key));
+                  if (strpos($rel, 'storage/') === 0) $rel = substr($rel, 8);
+                  Storage::disk('public')->delete($rel);
+              }
+          }
+          
+          // Delete Rekap row
+          DB::table('u_rekap_kekurangan')->where('id', $id)->delete();
+          
+          DB::commit();
+          return back()->with('success', 'Rekap beserta data kurang/lebih bayar untuk dosen terkait berhasil dihapus.');
+      } catch (\Throwable $e) {
+          DB::rollBack();
+          Log::error('Gagal hapus rekap tunggal: ' . $e->getMessage());
+          return back()->with('error', 'Gagal menghapus rekap dan data terkait.');
+      }
+  }
+
+
+  public function destroySemuaRekap(Request $request)
+  {
+      $versi = session('tahun');
+      $rekaps = DB::table('u_rekap_kekurangan')->whereRaw('RIGHT(periode, 4) = ?', [$versi])->get();
+      
+      DB::beginTransaction();
+      try {
+          foreach ($rekaps as $rekap) {
+              $periode = strtolower(trim($rekap->periode ?? ''));
+              $isKurang = (strpos($periode, 'kurang') !== false);
+              
+              // Get NIDNs in this rekap
+              $nidns = $this->getNidnsInRekap($rekap, $versi, $isKurang);
+              
+              // Delete underlying data for these NIDNs (original selisih + PEMBAYARAN rows)
+              if (!empty($nidns)) {
+                  if ($isKurang) {
+                      DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '<', 0)->whereIn('nidn', $nidns)->delete();
+                  } else {
+                      DB::table('t_kekurangan')->where('tahun', $versi)->where('selisih', '>', 0)->whereIn('nidn', $nidns)->delete();
+                  }
+                  // Also delete PEMBAYARAN rows generated by SP2D processing
+                  DB::table('t_kekurangan')->where('tahun', $versi)
+                      ->where('jenis_pembayaran', 'LIKE', 'PEMBAYARAN%')
+                      ->whereIn('nidn', $nidns)
+                      ->delete();
+              }
+              
+              // Delete file
+              foreach (['excel', 'pdf'] as $key) {
+                  if (!empty($rekap->$key)) {
+                      $rel = str_replace('\\', '/', trim($rekap->$key));
+                      if (strpos($rel, 'storage/') === 0) $rel = substr($rel, 8);
+                      Storage::disk('public')->delete($rel);
+                  }
+              }
+              
+              // Delete Rekap row
+              DB::table('u_rekap_kekurangan')->where('id', $rekap->id)->delete();
+          }
+          
+          DB::commit();
+          return back()->with('success', 'Semua rekap beserta data terkait berhasil dihapus.');
+      } catch (\Throwable $e) {
+          DB::rollBack();
+          Log::error('Gagal hapus semua rekap: ' . $e->getMessage());
+          return back()->with('error', 'Gagal menghapus rekap dan data terkait.');
+      }
   }
 
   public function getRiwayat(Request $request)

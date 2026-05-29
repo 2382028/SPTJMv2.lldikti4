@@ -239,8 +239,8 @@
                                                         for($m=1; $m<=12; $m++) {
                                                             $dbK = ($row->{'db_tpd'.$m} ?? 0) + ($row->{'db_tkgb'.$m} ?? 0);
                                                             $akK = ($row->{'exp_tpd'.$m} ?? 0) + ($row->{'exp_tkgb'.$m} ?? 0);
-                                                            // Kurang bayar: aktual > db
-                                                            if($akK > $dbK) {
+                                                            // Kurang bayar: hak (db) > aktual yang dibayar (ak)
+                                                            if($dbK > $akK) {
                                                                 $availMonths[] = $m;
                                                             }
                                                         }
@@ -396,13 +396,13 @@
                                                         for($m=1; $m<=12; $m++) {
                                                             $dbK = ($row->{'db_tpd'.$m} ?? 0) + ($row->{'db_tkgb'.$m} ?? 0);
                                                             $akK = ($row->{'exp_tpd'.$m} ?? 0) + ($row->{'exp_tkgb'.$m} ?? 0);
-                                                            // Lebih bayar: db > aktual
-                                                            if($dbK > $akK) {
+                                                            // Lebih bayar: aktual yang dibayar (ak) > hak (db)
+                                                            if($akK > $dbK) {
                                                                 $dbB = $row->{'db_bersih'.$m} ?? 0;
                                                                 $akB = $row->{'akt_bersih'.$m} ?? 0;
-                                                                $selisihBersih = $dbB - $akB;
+                                                                $selisihBersih = $akB - $dbB; // Dibalik agar nominalnya positif
                                                                 // Use bersih difference if positive, else fallback to kotor difference
-                                                                $nominal = $selisihBersih > 0 ? $selisihBersih : ($dbK - $akK);
+                                                                $nominal = $selisihBersih > 0 ? $selisihBersih : ($akK - $dbK);
                                                                 $availMonths[] = ['bulan' => $m, 'nominal' => $nominal];
                                                             }
                                                         }
@@ -504,6 +504,10 @@
                                                     @if(!empty($rekap->excel) && ($u = $rekapAssetUrl($rekap->excel)))
                                                     <a href="{{ $u }}" class="btn btn-sm btn-success py-0 px-2" target="_blank" title="Download XLSX" style="font-size:11px;">XLSX</a>
                                                     @endif
+                                                    
+                                                    <a href="{{ route('admin.kekurangan-bayar.detail-rekap', $rekap->id) }}" class="btn btn-sm btn-info py-0 px-2" title="Lihat detail dan pilah dosen" style="font-size:11px;">
+                                                        <i class="bx bx-list-ul"></i> Detail
+                                                    </a>
 
                                                     @if(!$isLebihRekap)
                                                         @if($sudahSp2d)
